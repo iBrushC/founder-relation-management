@@ -57,7 +57,7 @@ export function Sidebar() {
 
       <div className="mt-auto border-t border-sidebar-border p-3">
         <div className="flex items-center gap-2.5 px-1 py-1">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full tone-green text-xs font-semibold">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full tone-slate text-xs font-semibold">
             {initials(me.name)}
           </span>
           <div className="min-w-0 leading-tight">

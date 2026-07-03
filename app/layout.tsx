@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/app/sidebar";
+import { TopBar } from "@/components/app/topbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const ibm = IBM_Plex_Sans({
@@ -30,7 +31,10 @@ export default function RootLayout({
         <TooltipProvider delayDuration={200}>
           <div className="flex h-full">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <TopBar />
+              <main className="flex-1 overflow-y-auto">{children}</main>
+            </div>
           </div>
         </TooltipProvider>
       </body>

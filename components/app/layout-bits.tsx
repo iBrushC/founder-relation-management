@@ -15,8 +15,8 @@ export function PageHeader({
   back?: { href: string; label: string };
 }) {
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-5xl items-center gap-4 px-8 py-5">
+    <header>
+      <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 pt-6 pb-1">
         <div className="min-w-0">
           {back ? (
             <Link
@@ -50,7 +50,7 @@ export function PageBody({
   className?: string;
 }) {
   return (
-    <div className={cn("mx-auto max-w-5xl px-8 py-8", className)}>{children}</div>
+    <div className={cn("mx-auto max-w-5xl px-6 pt-3 pb-8", className)}>{children}</div>
   );
 }
 
@@ -65,7 +65,7 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-2.5">
       <div className="flex items-center gap-3">
         <span className="eyebrow">{title}</span>
         <span className="h-px flex-1 bg-border" />

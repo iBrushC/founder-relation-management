@@ -27,9 +27,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ConnectionPanel } from "@/components/app/connection-panel";
 
 export function ConnectionsView({
@@ -80,7 +84,7 @@ export function ConnectionsView({
               <Icons.filter className="size-4 text-muted-foreground" />
               <SelectValue placeholder="All tags" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent position="popper" align="end" className="min-w-40">
               <SelectItem value="all">All tags</SelectItem>
               {allTags.map((t) => (
                 <SelectItem key={t} value={t}>
@@ -111,7 +115,7 @@ export function ConnectionsView({
               <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
                 Last
               </TableHead>
-              <TableHead className="h-9 w-10" />
+              <TableHead className="h-9 w-28" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -121,7 +125,7 @@ export function ConnectionsView({
                 onClick={() => setSelectedId(c.id)}
                 className="cursor-pointer"
               >
-                <TableCell className="py-2.5 pl-4">
+                <TableCell className="py-2 pl-4">
                   <div className="flex items-center gap-2.5">
                     <InitialsAvatar name={c.name} tone={c.avatarTone} />
                     <span className="font-medium">{c.name}</span>
@@ -140,8 +144,8 @@ export function ConnectionsView({
                 <TableCell className="tabular-nums whitespace-nowrap text-muted-foreground">
                   {c.last}
                 </TableCell>
-                <TableCell className="pr-2 text-right">
-                  <RowMenu />
+                <TableCell className="pr-2">
+                  <RowActions />
                 </TableCell>
               </TableRow>
             ))}
@@ -168,38 +172,53 @@ export function ConnectionsView({
   );
 }
 
-function RowMenu() {
+/** Frequently-used actions promoted to the row; the rest live in the menu. */
+function RowActions() {
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Row actions"
-        >
-          <Icons.dots className="size-4" />
+    <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
+      <IconAction icon={Icons.message} label="Log interaction" onClick={stop} />
+      <IconAction icon={Icons.edit} label="Edit" onClick={stop} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={stop}
+            aria-label="More actions"
+          >
+            <Icons.dots className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" onClick={stop}>
+          <DropdownMenuItem
+            className={cn("focus:bg-destructive/10", toneInk.red)}
+          >
+            <Icons.x className="size-4" /> Remove
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function IconAction({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: (typeof Icons)[keyof typeof Icons];
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={label}>
+          <Icon className="size-4" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <DropdownMenuItem>
-          <Icons.arrowUpRight className="size-4" /> View profile
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Icons.message className="size-4" /> Log interaction
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Icons.edit className="size-4" /> Edit
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className={cn("focus:bg-destructive/10", toneInk.red)}>
-          <Icons.x className="size-4" /> Remove
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }

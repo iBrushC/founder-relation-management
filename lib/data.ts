@@ -39,9 +39,37 @@ export type Update = {
   kind: string;
   tone: Tone;
   when: string;
+  /** Longer context shown in the update detail panel. */
+  detail: string;
+  /** People this update touches. */
+  connectionIds: string[];
+  /** Projects this update touches. */
+  projectIds: string[];
 };
 
-export type Task = { id: string; label: string; done: boolean; due?: string };
+export type Subtask = { id: string; label: string; done: boolean };
+
+export type Task = {
+  id: string;
+  label: string;
+  done: boolean;
+  due?: string;
+  /** Optional longer context, revealed on demand. */
+  description?: string;
+  /** Optional checklist nested under the task, revealed on demand. */
+  subtasks?: Subtask[];
+};
+
+/** A project stage that spans a date range; stages routinely overlap. */
+export type Phase = {
+  id: string;
+  label: string;
+  tone: Tone;
+  /** ISO date (YYYY-MM-DD), inclusive. */
+  start: string;
+  /** ISO date (YYYY-MM-DD), inclusive. */
+  end: string;
+};
 
 export type Project = {
   id: string;
@@ -53,7 +81,7 @@ export type Project = {
   status: Tag;
   connectionIds: string[];
   tasks: Task[];
-  timeline: Interaction[];
+  phases: Phase[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +226,10 @@ export const updates: Update[] = [
     kind: "Deadline",
     tone: "red",
     when: "Tomorrow",
+    detail:
+      "Sam asked for the deck by Friday plus a 3-line traction update. Pull the latest numbers from the Lumen dashboard before sending.",
+    connectionIds: ["sam-whitfield"],
+    projectIds: ["lumen"],
   },
   {
     id: "u2",
@@ -206,6 +238,10 @@ export const updates: Update[] = [
     kind: "Check-in",
     tone: "blue",
     when: "in 2 days",
+    detail:
+      "Follow up on her onboarding-flow feedback and see if she'd co-sign the Northwind pilot scope.",
+    connectionIds: ["priya-raman"],
+    projectIds: ["lumen", "northwind-pilot"],
   },
   {
     id: "u3",
@@ -214,6 +250,10 @@ export const updates: Update[] = [
     kind: "Birthday",
     tone: "purple",
     when: "Jul 9",
+    detail:
+      "Grab dinner with your co-founder — he's been heads-down on the eval dataset. Good moment to unblock him too.",
+    connectionIds: ["david-okafor"],
+    projectIds: ["lumen"],
   },
   {
     id: "u4",
@@ -222,6 +262,10 @@ export const updates: Update[] = [
     kind: "Meeting",
     tone: "green",
     when: "Fri 3:00",
+    detail:
+      "Standing team sync. Agenda: onboarding v2 ship date, eval dataset status, and the Alder deck.",
+    connectionIds: ["david-okafor", "priya-raman"],
+    projectIds: ["lumen"],
   },
   {
     id: "u5",
@@ -230,6 +274,10 @@ export const updates: Update[] = [
     kind: "Milestone",
     tone: "amber",
     when: "Jul 31",
+    detail:
+      "Founders Fellowship decisions go out end of month. Make sure Elena has the updated one-pager well before then.",
+    connectionIds: ["elena-mora", "grace-liu"],
+    projectIds: ["founders-fellowship"],
   },
 ];
 
@@ -245,17 +293,40 @@ export const projects: Project[] = [
     status: { label: "On track", tone: "green" },
     connectionIds: ["david-okafor", "priya-raman", "sam-whitfield", "grace-liu"],
     tasks: [
-      { id: "t1", label: "Ship onboarding v2", done: false, due: "Jul 8" },
-      { id: "t2", label: "Finalize eval dataset with David", done: false, due: "Jul 10" },
+      {
+        id: "t1",
+        label: "Ship onboarding v2",
+        done: false,
+        due: "Jul 8",
+        description:
+          "Incorporate Priya's feedback on the first-run flow — fewer steps, clearer value prop on screen one.",
+        subtasks: [
+          { id: "t1a", label: "Rewrite welcome copy", done: true },
+          { id: "t1b", label: "Cut the setup wizard to 3 steps", done: false },
+          { id: "t1c", label: "QA on mobile", done: false },
+        ],
+      },
+      {
+        id: "t2",
+        label: "Finalize eval dataset with David",
+        done: false,
+        due: "Jul 10",
+        description:
+          "Blocker for the ranking model. Needs a labeled set of ~500 practice questions across three subjects.",
+        subtasks: [
+          { id: "t2a", label: "Agree on labeling rubric", done: false },
+          { id: "t2b", label: "Label first 200", done: false },
+        ],
+      },
       { id: "t3", label: "Send updated deck to Alder", done: false, due: "Jul 4" },
       { id: "t4", label: "Draft campus pilot outreach", done: true },
       { id: "t5", label: "Set up analytics dashboard", done: true },
     ],
-    timeline: [
-      { label: "Priya reviewed onboarding mockups", when: "2 hours ago" },
-      { label: "Ranking model v2 shipped", when: "3 days ago" },
-      { label: "Alder requested the deck", when: "Yesterday" },
-      { label: "Kicked off fall pilot planning", when: "Jun 24" },
+    phases: [
+      { id: "lp1", label: "Fall pilot planning", tone: "green", start: "2026-06-18", end: "2026-07-31" },
+      { id: "lp2", label: "Onboarding v2", tone: "blue", start: "2026-06-24", end: "2026-07-08" },
+      { id: "lp3", label: "Eval dataset", tone: "purple", start: "2026-06-28", end: "2026-07-10" },
+      { id: "lp4", label: "Alder fundraise", tone: "red", start: "2026-07-01", end: "2026-07-04" },
     ],
   },
   {
@@ -272,9 +343,10 @@ export const projects: Project[] = [
       { id: "f1", label: "Send updated one-pager to Elena", done: false, due: "Jul 6" },
       { id: "f2", label: "Line up two references", done: true },
     ],
-    timeline: [
-      { label: "Application submitted", when: "3 weeks ago" },
-      { label: "Info session with Elena", when: "May 15" },
+    phases: [
+      { id: "fp1", label: "Application", tone: "amber", start: "2026-06-12", end: "2026-06-19" },
+      { id: "fp2", label: "One-pager revision", tone: "blue", start: "2026-06-30", end: "2026-07-06" },
+      { id: "fp3", label: "Decision window", tone: "slate", start: "2026-07-06", end: "2026-07-31" },
     ],
   },
   {
@@ -288,7 +360,10 @@ export const projects: Project[] = [
     status: { label: "Paused", tone: "slate" },
     connectionIds: ["priya-raman"],
     tasks: [{ id: "n1", label: "Revisit scope after fall pilot", done: false }],
-    timeline: [{ label: "Scoping call with Priya", when: "Jun 18" }],
+    phases: [
+      { id: "np1", label: "Scoping", tone: "teal", start: "2026-06-16", end: "2026-06-19" },
+      { id: "np2", label: "On hold", tone: "slate", start: "2026-06-19", end: "2026-07-31" },
+    ],
   },
 ];
 

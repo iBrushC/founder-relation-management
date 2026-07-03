@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Icons } from "@/lib/icons";
 import { updates, connections, projects } from "@/lib/data";
 import { PageHeader, PageBody, Section } from "@/components/app/layout-bits";
-import { UpdateRow, ProjectRow } from "@/components/app/rows";
+import { ProjectRow } from "@/components/app/rows";
+import { UpdatesView } from "@/components/app/updates-view";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { Button } from "@/components/ui/button";
 
@@ -25,18 +26,14 @@ export default function HomePage() {
         }
       />
 
-      <PageBody className="flex flex-col gap-9">
+      <PageBody className="flex flex-col gap-7">
         <Section
           title="Updates"
           action={
             <span className="text-xs text-muted-foreground">Next 30 days</span>
           }
         >
-          <div className="flex flex-col gap-1.5">
-            {updates.map((u) => (
-              <UpdateRow key={u.id} update={u} />
-            ))}
-          </div>
+          <UpdatesView updates={updates} />
         </Section>
 
         <Section

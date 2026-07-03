@@ -5,10 +5,20 @@ import { toneBg } from "@/lib/tone";
 import type { Update, Project } from "@/lib/data";
 import { Tag, StatusBadge } from "@/components/app/primitives";
 
-export function UpdateRow({ update }: { update: Update }) {
+export function UpdateRow({
+  update,
+  onClick,
+}: {
+  update: Update;
+  onClick?: () => void;
+}) {
   const Icon = Icons[update.icon];
   return (
-    <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full cursor-pointer items-center gap-3 rounded-md border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-muted/50"
+    >
       <span
         className={cn(
           "grid size-8 shrink-0 place-items-center rounded-md",
@@ -24,7 +34,7 @@ export function UpdateRow({ update }: { update: Update }) {
       <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
         {update.when}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -34,7 +44,7 @@ export function ProjectRow({ project }: { project: Project }) {
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="group flex items-center gap-3.5 rounded-md border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
+      className="group flex items-center gap-3.5 rounded-md border border-border bg-card px-4 py-2.5 transition-colors hover:bg-muted/50"
     >
       <span
         className={cn(

@@ -4,7 +4,7 @@ import { projectsById, connectionsById } from "@/lib/data";
 import { PageHeader, PageBody, Section } from "@/components/app/layout-bits";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { TaskList } from "@/components/app/task-list";
-import { Timeline } from "@/components/app/timeline";
+import { GanttTimeline } from "@/components/app/gantt-timeline";
 import { StatusBadge } from "@/components/app/primitives";
 import { Button } from "@/components/ui/button";
 
@@ -30,6 +30,9 @@ export default async function ProjectPage({
         actions={
           <>
             <StatusBadge label={project.status.label} tone={project.status.tone} />
+            <Button variant="outline">
+              <Icons.edit className="size-4" /> Edit
+            </Button>
             <Button variant="secondary">
               <Icons.plus className="size-4" /> Add task
             </Button>
@@ -37,7 +40,7 @@ export default async function ProjectPage({
         }
       />
 
-      <PageBody className="flex flex-col gap-9">
+      <PageBody className="flex flex-col gap-7">
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
           {project.description}
         </p>
@@ -58,9 +61,7 @@ export default async function ProjectPage({
         </Section>
 
         <Section title="Timeline">
-          <div className="rounded-md border border-border bg-card p-5">
-            <Timeline items={project.timeline} />
-          </div>
+          <GanttTimeline phases={project.phases} />
         </Section>
       </PageBody>
     </>
