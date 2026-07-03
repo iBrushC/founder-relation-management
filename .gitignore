@@ -38,3 +38,4 @@ next-env.d.ts
 # agents
 .mcp.json
 .claude
+.agents
