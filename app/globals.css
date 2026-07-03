@@ -1,26 +1,154 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Type — Space Mono for all-caps headers, IBM Plex Sans everywhere else */
+  --font-sans: var(--font-ibm), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-space), ui-monospace, "Cascadia Mono", monospace;
+  --font-mono: var(--font-space), ui-monospace, monospace;
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+  SFRM — "Sage" palette.
+  Desaturated ramp: neutrals sit at ~0–10% perceived saturation; the sage
+  --primary is the lone ~50% hero. Semantic tones (below) add deliberate
+  color diversity so status, actions, and destructive stand out.
+*/
+:root {
+  --radius: 0.375rem;
+
+  --background: oklch(0.984 0.006 130);
+  --foreground: oklch(0.268 0.015 148);
+
+  --card: oklch(0.998 0.003 130);
+  --card-foreground: oklch(0.268 0.015 148);
+  --popover: oklch(0.998 0.003 130);
+  --popover-foreground: oklch(0.268 0.015 148);
+
+  /* Hero — the only saturated green */
+  --primary: oklch(0.53 0.093 152);
+  --primary-foreground: oklch(0.99 0.012 130);
+
+  /* ~5% — subtle fills, hover surfaces */
+  --secondary: oklch(0.955 0.011 132);
+  --secondary-foreground: oklch(0.30 0.02 149);
+  --muted: oklch(0.955 0.011 132);
+  --muted-foreground: oklch(0.505 0.017 146);
+
+  /* ~10% — soft sage tint for active states */
+  --accent: oklch(0.93 0.03 148);
+  --accent-foreground: oklch(0.40 0.062 152);
+
+  --destructive: oklch(0.585 0.19 25);
+
+  --border: oklch(0.906 0.009 132);
+  --input: oklch(0.902 0.011 132);
+  --ring: oklch(0.53 0.093 152);
+
+  --sidebar: oklch(0.972 0.008 132);
+  --sidebar-foreground: oklch(0.268 0.015 148);
+  --sidebar-primary: oklch(0.53 0.093 152);
+  --sidebar-primary-foreground: oklch(0.99 0.012 130);
+  --sidebar-accent: oklch(0.93 0.03 148);
+  --sidebar-accent-foreground: oklch(0.40 0.062 152);
+  --sidebar-border: oklch(0.902 0.009 132);
+  --sidebar-ring: oklch(0.53 0.093 152);
+
+  /* Semantic tones — soft ground + saturated ink, one hue each */
+  --t-red-bg: oklch(0.955 0.03 28);      --t-red-fg: oklch(0.54 0.185 27);
+  --t-amber-bg: oklch(0.958 0.05 82);    --t-amber-fg: oklch(0.52 0.105 68);
+  --t-blue-bg: oklch(0.955 0.032 242);   --t-blue-fg: oklch(0.52 0.135 250);
+  --t-green-bg: oklch(0.95 0.04 155);    --t-green-fg: oklch(0.48 0.115 155);
+  --t-purple-bg: oklch(0.955 0.035 305); --t-purple-fg: oklch(0.52 0.15 305);
+  --t-teal-bg: oklch(0.955 0.035 200);   --t-teal-fg: oklch(0.50 0.09 205);
+  --t-slate-bg: oklch(0.954 0.006 150);  --t-slate-fg: oklch(0.46 0.013 150);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    color-scheme: light;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* No drop shadows — rely on borders per the design direction */
+  [data-slot="card"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="select-content"],
+  [data-slot="popover-content"],
+  [data-slot="sheet-content"],
+  [data-slot="tooltip-content"] {
+    box-shadow: none !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Semantic tone chips — set colors only; layout comes from the Tag/Status component */
+  .tone-red    { background: var(--t-red-bg);    color: var(--t-red-fg); }
+  .tone-amber  { background: var(--t-amber-bg);  color: var(--t-amber-fg); }
+  .tone-blue   { background: var(--t-blue-bg);   color: var(--t-blue-fg); }
+  .tone-green  { background: var(--t-green-bg);  color: var(--t-green-fg); }
+  .tone-purple { background: var(--t-purple-bg); color: var(--t-purple-fg); }
+  .tone-teal   { background: var(--t-teal-bg);   color: var(--t-teal-fg); }
+  .tone-slate  { background: var(--t-slate-bg);  color: var(--t-slate-fg); }
+
+  .tone-red-ink    { color: var(--t-red-fg); }
+  .tone-amber-ink  { color: var(--t-amber-fg); }
+  .tone-blue-ink   { color: var(--t-blue-fg); }
+  .tone-green-ink  { color: var(--t-green-fg); }
+  .tone-purple-ink { color: var(--t-purple-fg); }
+  .tone-teal-ink   { color: var(--t-teal-fg); }
+  .tone-slate-ink  { color: var(--t-slate-fg); }
+
+  /* All-caps section eyebrow */
+  .eyebrow {
+    font-family: var(--font-heading);
+    font-size: 0.6875rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
 }
