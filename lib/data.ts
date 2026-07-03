@@ -88,7 +88,17 @@ export type Project = {
 /*  Demo data — Maya Chen, a student founder                           */
 /* ------------------------------------------------------------------ */
 
-export const me = { name: "Maya Chen", role: "Founder · Lumen", initials: "MC" };
+export const me = {
+  name: "Maya Chen",
+  role: "Founder · Lumen",
+  initials: "MC",
+  email: "maya@lumen.study",
+  school: "Stanford University",
+  bio: "Second-year building Lumen, an AI study companion for students. Ex-Figma design intern. Fundraising a pre-seed and running a fall campus pilot.",
+  resume: "maya-chen-resume.pdf",
+  country: "United States",
+  timezone: "America/Los_Angeles",
+};
 
 export const connections: Connection[] = [
   {

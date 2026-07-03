@@ -29,6 +29,16 @@ import {
   Message,
   Star,
   ClockCircle,
+  Cog,
+  User,
+  Globe,
+  File,
+  Upload,
+  Logout,
+  Key,
+  Link,
+  Google,
+  Linkedin,
 } from "@mynaui/icons-react";
 
 export const Icons = {
@@ -62,6 +72,16 @@ export const Icons = {
   message: Message,
   star: Star,
   clock: ClockCircle,
+  settings: Cog,
+  user: User,
+  globe: Globe,
+  file: File,
+  upload: Upload,
+  logout: Logout,
+  key: Key,
+  link: Link,
+  google: Google,
+  linkedin: Linkedin,
 } as const;
 
 export type IconKey = keyof typeof Icons;
