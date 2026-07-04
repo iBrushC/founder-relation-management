@@ -32,6 +32,27 @@ export type Connection = {
   timeline: Interaction[];
 };
 
+/** A past or upcoming event — mixers, demo days, meetups, info sessions. */
+export type EventItem = {
+  id: string;
+  name: string;
+  /** Human label for when it happens, e.g. "Jul 12" or "in 2 days". */
+  when: string;
+  where: string;
+  /** Who ran the event (orgs or people). */
+  organizers: string[];
+  /** Connection IDs of people met at the event. */
+  metIds: string[];
+  /** People met who aren't in Connections (yet). */
+  metGuests?: string[];
+  note: string;
+  /** True for events that haven't happened yet. */
+  upcoming: boolean;
+  avatarTone: Tone;
+  /** Lower = shown earlier. Upcoming (soonest) first, then recent past. */
+  rank: number;
+};
+
 export type Update = {
   id: string;
   icon: IconKey;
@@ -227,6 +248,85 @@ export const connections: Connection[] = [
 export const connectionsById = Object.fromEntries(
   connections.map((c) => [c.id, c]),
 );
+
+export const events: EventItem[] = [
+  {
+    id: "alder-office-hours",
+    name: "Alder Ventures Office Hours",
+    when: "in 5 days",
+    where: "Alder Ventures, Menlo Park",
+    organizers: ["Alder Ventures"],
+    metIds: ["sam-whitfield"],
+    note: "Booked slot to walk Sam through the deck live. Bring the updated traction numbers and the fall pilot timeline.",
+    upcoming: true,
+    avatarTone: "blue",
+    rank: 1,
+  },
+  {
+    id: "pre-seed-demo-day",
+    name: "Pre-seed Demo Day",
+    when: "Jul 12",
+    where: "Mission Bay Conference Center, SF",
+    organizers: ["Founders Fellowship", "Alder Ventures"],
+    metIds: ["sam-whitfield", "elena-mora"],
+    metGuests: ["Jordan Ellis (Beacon Capital)"],
+    note: "5-minute pitch slot. Investor mingling after — Elena is introducing us to two seed funds. Have the one-liner and the QR to the deck ready.",
+    upcoming: true,
+    avatarTone: "purple",
+    rank: 2,
+  },
+  {
+    id: "design-systems-meetup",
+    name: "Design Systems Meetup",
+    when: "Jul 18",
+    where: "Northwind HQ, San Francisco",
+    organizers: ["Priya Raman", "Northwind"],
+    metIds: ["priya-raman"],
+    note: "Priya is hosting. Good chance to keep the Northwind pilot thread warm and meet their design team informally.",
+    upcoming: true,
+    avatarTone: "teal",
+    rank: 3,
+  },
+  {
+    id: "founders-mixer",
+    name: "Founders Mixer",
+    when: "Jun 18",
+    where: "The Assembly, San Francisco",
+    organizers: ["Founders Fellowship"],
+    metIds: ["priya-raman", "tobias-reyes"],
+    note: "Where we met Priya — she offered to review onboarding. Also reconnected with Tobias. Strong room, worth going again next quarter.",
+    upcoming: false,
+    avatarTone: "green",
+    rank: 4,
+  },
+  {
+    id: "campus-startup-fair",
+    name: "Campus Startup Fair",
+    when: "May 28",
+    where: "Stanford Memorial Court",
+    organizers: ["Stanford E-Ship"],
+    metIds: ["tobias-reyes"],
+    metGuests: ["Nina Alvarez (student, wants a demo)"],
+    note: "Ran a table for the fall pilot. Collected ~40 student sign-ups. Traded investor lists with Tobias at the hack night after.",
+    upcoming: false,
+    avatarTone: "amber",
+    rank: 5,
+  },
+  {
+    id: "fellowship-info-session",
+    name: "Founders Fellowship Info Session",
+    when: "May 15",
+    where: "Virtual (Zoom)",
+    organizers: ["Founders Fellowship", "Elena Mora"],
+    metIds: ["elena-mora", "grace-liu"],
+    note: "First contact with Elena and the program. Covered the application timeline and what a strong one-pager looks like.",
+    upcoming: false,
+    avatarTone: "slate",
+    rank: 6,
+  },
+];
+
+export const eventsById = Object.fromEntries(events.map((e) => [e.id, e]));
 
 export const updates: Update[] = [
   {

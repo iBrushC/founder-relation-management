@@ -33,13 +33,13 @@ export function GeneralAdd() {
     >
       <DialogTrigger asChild>
         <Button>
-          <Icons.sparkles className="size-4" /> General Add
+          <Icons.sparkles className="size-4" /> Quick Add
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Icons.sparkles className="size-4 text-primary" /> General Add
+            <Icons.sparkles className="size-4 text-primary" /> Quick Add
           </DialogTitle>
           <DialogDescription>
             Jot anything in plain language — a new contact, a note, a follow-up —

@@ -31,6 +31,37 @@ export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
   );
 }
 
+/** Overlapping stack of initials-avatars, with a "+N" chip past the limit. */
+export function AvatarStack({
+  people,
+  limit = 3,
+}: {
+  people: { name: string; tone?: Tone }[];
+  limit?: number;
+}) {
+  const shown = people.slice(0, limit);
+  const extra = people.length - shown.length;
+  return (
+    <div className="flex items-center">
+      <div className="flex -space-x-1.5">
+        {shown.map((p, i) => (
+          <InitialsAvatar
+            key={i}
+            name={p.name}
+            tone={p.tone}
+            className="size-6 text-[10px] ring-2 ring-card"
+          />
+        ))}
+      </div>
+      {extra > 0 ? (
+        <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">
+          +{extra}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 /** Initials avatar in a soft tone ground. */
 export function InitialsAvatar({
   name,

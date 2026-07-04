@@ -6,11 +6,19 @@ import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { me } from "@/lib/data";
 import { initials } from "@/lib/tone";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const nav = [
   { href: "/", label: "Home", icon: Icons.home },
   { href: "/connections", label: "Connections", icon: Icons.users },
   { href: "/projects", label: "Projects", icon: Icons.folder },
+  { href: "/events", label: "Events", icon: Icons.calendar },
 ] as const;
 
 function isActive(pathname: string, href: string) {
@@ -55,39 +63,44 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-0.5 px-3 pb-2">
-        {(() => {
-          const active = isActive(pathname, "/settings");
-          return (
-            <Link
-              href="/settings"
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-              )}
+      <div className="mt-auto border-t border-sidebar-border p-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Account menu"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors outline-none hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-sidebar-ring aria-expanded:bg-sidebar-accent/50"
             >
-              <Icons.settings className="size-[18px]" />
-              Settings
-            </Link>
-          );
-        })()}
-      </div>
-
-      <div className="border-t border-sidebar-border p-3">
-        <div className="flex items-center gap-2.5 px-1 py-1">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full tone-slate text-xs font-semibold">
-            {initials(me.name)}
-          </span>
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-sm font-medium text-sidebar-foreground">
-              {me.name}
-            </div>
-            <div className="truncate text-xs text-muted-foreground">{me.role}</div>
-          </div>
-        </div>
+              <span className="grid size-8 shrink-0 place-items-center rounded-full tone-slate text-xs font-semibold">
+                {initials(me.name)}
+              </span>
+              <div className="min-w-0 leading-tight">
+                <div className="truncate text-sm font-medium text-sidebar-foreground">
+                  {me.name}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {me.role}
+                </div>
+              </div>
+              <Icons.dots className="ml-auto size-4 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            align="start"
+            className="w-(--radix-dropdown-menu-trigger-width)"
+          >
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <Icons.settings className="size-4" /> Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>
+              <Icons.logout className="size-4" /> Log out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </aside>
   );
