@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import type { EventItem } from "@/lib/data";
-import { connectionsById } from "@/lib/data";
+import type { Connection, EventItem } from "@/lib/data";
+import { removeEvent } from "@/lib/data/actions";
 import { toneInk } from "@/lib/tone";
 import { InitialsAvatar, AvatarStack, StatusBadge } from "@/components/app/primitives";
 import {
@@ -38,7 +38,10 @@ import {
 import { EventPanel } from "@/components/app/event-panel";
 
 /** People met at an event, resolved to their connection (guests kept as names). */
-export function metPeople(event: EventItem) {
+export function metPeople(
+  event: EventItem,
+  connectionsById: Record<string, Connection>,
+) {
   const connections = event.metIds
     .map((id) => connectionsById[id])
     .filter(Boolean)
@@ -52,9 +55,11 @@ export function metPeople(event: EventItem) {
 
 export function EventsView({
   events,
+  connectionsById,
   showControls = false,
 }: {
   events: EventItem[];
+  connectionsById: Record<string, Connection>;
   showControls?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -129,7 +134,7 @@ export function EventsView({
           </TableHeader>
           <TableBody>
             {filtered.map((e) => {
-              const met = metPeople(e);
+              const met = metPeople(e, connectionsById);
               return (
                 <TableRow
                   key={e.id}
@@ -164,7 +169,7 @@ export function EventsView({
                     )}
                   </TableCell>
                   <TableCell className="pr-2">
-                    <RowActions />
+                    <RowActions onRemove={() => removeEvent(e.id)} />
                   </TableCell>
                 </TableRow>
               );
@@ -185,6 +190,7 @@ export function EventsView({
 
       <EventPanel
         event={selected}
+        connectionsById={connectionsById}
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
       />
@@ -193,7 +199,8 @@ export function EventsView({
 }
 
 /** Frequently-used actions promoted to the row; the rest live in the menu. */
-function RowActions() {
+function RowActions({ onRemove }: { onRemove: () => void }) {
+  const [, startTransition] = useTransition();
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
     <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
@@ -213,6 +220,7 @@ function RowActions() {
         <DropdownMenuContent align="end" onClick={stop}>
           <DropdownMenuItem
             className={cn("focus:bg-destructive/10", toneInk.red)}
+            onSelect={() => startTransition(onRemove)}
           >
             <Icons.x className="size-4" /> Remove
           </DropdownMenuItem>

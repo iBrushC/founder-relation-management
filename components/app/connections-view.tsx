@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection } from "@/lib/data";
+import { removeConnection } from "@/lib/data/actions";
 import { toneInk } from "@/lib/tone";
 import { Tag, InitialsAvatar } from "@/components/app/primitives";
 import {
@@ -145,7 +146,7 @@ export function ConnectionsView({
                   {c.last}
                 </TableCell>
                 <TableCell className="pr-2">
-                  <RowActions />
+                  <RowActions onRemove={() => removeConnection(c.id)} />
                 </TableCell>
               </TableRow>
             ))}
@@ -173,7 +174,8 @@ export function ConnectionsView({
 }
 
 /** Frequently-used actions promoted to the row; the rest live in the menu. */
-function RowActions() {
+function RowActions({ onRemove }: { onRemove: () => void }) {
+  const [, startTransition] = useTransition();
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
     <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
@@ -193,6 +195,7 @@ function RowActions() {
         <DropdownMenuContent align="end" onClick={stop}>
           <DropdownMenuItem
             className={cn("focus:bg-destructive/10", toneInk.red)}
+            onSelect={() => startTransition(onRemove)}
           >
             <Icons.x className="size-4" /> Remove
           </DropdownMenuItem>

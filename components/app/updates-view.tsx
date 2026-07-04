@@ -5,8 +5,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
-import type { Update } from "@/lib/data";
-import { connectionsById, projectsById } from "@/lib/data";
+import type { Connection, Project, Update } from "@/lib/data";
 import { UpdateRow } from "@/components/app/rows";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import {
@@ -17,7 +16,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-export function UpdatesView({ updates }: { updates: Update[] }) {
+export function UpdatesView({
+  updates,
+  connectionsById,
+  projectsById,
+}: {
+  updates: Update[];
+  connectionsById: Record<string, Connection>;
+  projectsById: Record<string, Project>;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = updates.find((u) => u.id === selectedId) ?? null;
 
@@ -29,6 +36,8 @@ export function UpdatesView({ updates }: { updates: Update[] }) {
 
       <UpdatePanel
         update={selected}
+        connectionsById={connectionsById}
+        projectsById={projectsById}
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
       />
@@ -53,10 +62,14 @@ function Block({
 
 function UpdatePanel({
   update,
+  connectionsById,
+  projectsById,
   open,
   onOpenChange,
 }: {
   update: Update | null;
+  connectionsById: Record<string, Connection>;
+  projectsById: Record<string, Project>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {

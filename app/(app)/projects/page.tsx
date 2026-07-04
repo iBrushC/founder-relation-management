@@ -1,20 +1,17 @@
-import { Icons } from "@/lib/icons";
-import { projects } from "@/lib/data";
+import { listProjects } from "@/lib/data/crm";
 import { PageHeader, PageBody } from "@/components/app/layout-bits";
 import { ProjectRow } from "@/components/app/rows";
-import { Button } from "@/components/ui/button";
+import { AddProjectDialog } from "@/components/app/add-dialogs";
 
-export default function ProjectsPage() {
+export default async function ProjectsPage() {
+  const projects = await listProjects();
+
   return (
     <>
       <PageHeader
         title="Projects"
         description="Ventures and campaigns you're actively working on."
-        actions={
-          <Button>
-            <Icons.plus className="size-4" /> New project
-          </Button>
-        }
+        actions={<AddProjectDialog />}
       />
       <PageBody>
         <div className="flex flex-col gap-2">

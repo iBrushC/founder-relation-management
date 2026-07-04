@@ -1,34 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Task } from "@/lib/data";
+import { toggleTask, updateSubtasks } from "@/lib/data/actions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 
-export function TaskList({ tasks }: { tasks: Task[] }) {
+export function TaskList({
+  tasks,
+  projectId,
+}: {
+  tasks: Task[];
+  projectId?: string;
+}) {
   const [items, setItems] = useState(tasks);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [, startTransition] = useTransition();
 
-  const toggle = (id: string) =>
+  // Optimistically flip the checkbox, then persist. Server state is authoritative
+  // on the next load; revalidation keeps other views in sync.
+  const toggle = (id: string) => {
+    const next = !items.find((t) => t.id === id)?.done;
     setItems((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
+      prev.map((t) => (t.id === id ? { ...t, done: next } : t)),
     );
+    startTransition(() => toggleTask(id, next, projectId));
+  };
 
-  const toggleSubtask = (taskId: string, subId: string) =>
+  const toggleSubtask = (taskId: string, subId: string) => {
+    let updated: Task["subtasks"];
     setItems((prev) =>
-      prev.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: t.subtasks?.map((s) =>
-                s.id === subId ? { ...s, done: !s.done } : s,
-              ),
-            }
-          : t,
-      ),
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        updated = t.subtasks?.map((s) =>
+          s.id === subId ? { ...s, done: !s.done } : s,
+        );
+        return { ...t, subtasks: updated };
+      }),
     );
+    if (updated) {
+      startTransition(() => updateSubtasks(taskId, updated!, projectId));
+    }
+  };
 
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {

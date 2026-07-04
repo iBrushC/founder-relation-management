@@ -1,8 +1,7 @@
 "use client";
 
 import { Icons } from "@/lib/icons";
-import type { EventItem } from "@/lib/data";
-import { connectionsById } from "@/lib/data";
+import type { Connection, EventItem } from "@/lib/data";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,10 +60,12 @@ function MetRow({ name, role, tone }: { name: string; role?: string; tone?: Even
 
 export function EventPanel({
   event,
+  connectionsById,
   open,
   onOpenChange,
 }: {
   event: EventItem | null;
+  connectionsById: Record<string, Connection>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {

@@ -6,6 +6,7 @@ import { Icons } from "@/lib/icons";
 import { me, connections, projects } from "@/lib/data";
 import { Section } from "@/components/app/layout-bits";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
+import { SampleDataButton } from "@/components/app/sample-data-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -490,6 +491,18 @@ export function SettingsView() {
             account="Maya Chen"
             onToggle={() => setLinkedin((v) => !v)}
           />
+        </Card>
+      </Section>
+
+      {/* ---- Sample data ---- */}
+      <Section title="Sample data">
+        <Card>
+          <Row
+            title="Load sample data"
+            description="Fill your account with the Maya Chen demo dataset — people, projects, tasks, and events. Replaces any existing CRM data."
+          >
+            <SampleDataButton />
+          </Row>
         </Card>
       </Section>
 

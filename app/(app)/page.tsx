@@ -1,14 +1,22 @@
 import Link from "next/link";
 import { Icons } from "@/lib/icons";
-import { updates, connections, projects } from "@/lib/data";
+import { listConnections, listProjects, listUpdates } from "@/lib/data/crm";
 import { PageHeader, PageBody, Section } from "@/components/app/layout-bits";
 import { ProjectRow } from "@/components/app/rows";
 import { UpdatesView } from "@/components/app/updates-view";
 import { ConnectionsView } from "@/components/app/connections-view";
+import { AddConnectionDialog } from "@/components/app/add-dialogs";
 import { Button } from "@/components/ui/button";
 
-export default function HomePage() {
-  const recent = [...connections].sort((a, b) => a.rank - b.rank);
+export default async function HomePage() {
+  const [updates, connections, projects] = await Promise.all([
+    listUpdates(),
+    listConnections(),
+    listProjects(),
+  ]);
+
+  const connectionsById = Object.fromEntries(connections.map((c) => [c.id, c]));
+  const projectsById = Object.fromEntries(projects.map((p) => [p.id, p]));
   const openTasks = projects.reduce(
     (n, p) => n + p.tasks.filter((t) => !t.done).length,
     0,
@@ -18,12 +26,8 @@ export default function HomePage() {
     <>
       <PageHeader
         title="Home"
-        description={`Thursday, July 3 — ${recent.length} people to follow up with, ${openTasks} tasks open.`}
-        actions={
-          <Button>
-            <Icons.plus className="size-4" /> Add connection
-          </Button>
-        }
+        description={`${connections.length} people to keep up with, ${openTasks} tasks open.`}
+        actions={<AddConnectionDialog />}
       />
 
       <PageBody className="flex flex-col gap-7">
@@ -33,7 +37,11 @@ export default function HomePage() {
             <span className="text-xs text-muted-foreground">Next 30 days</span>
           }
         >
-          <UpdatesView updates={updates} />
+          <UpdatesView
+            updates={updates}
+            connectionsById={connectionsById}
+            projectsById={projectsById}
+          />
         </Section>
 
         <Section
@@ -46,7 +54,7 @@ export default function HomePage() {
             </Button>
           }
         >
-          <ConnectionsView connections={recent} />
+          <ConnectionsView connections={connections} />
         </Section>
 
         <Section

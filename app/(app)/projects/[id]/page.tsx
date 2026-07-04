@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { Icons } from "@/lib/icons";
-import { projectsById, connectionsById } from "@/lib/data";
+import { getProject, listConnections } from "@/lib/data/crm";
 import { PageHeader, PageBody, Section } from "@/components/app/layout-bits";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { TaskList } from "@/components/app/task-list";
@@ -14,12 +14,16 @@ export default async function ProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = projectsById[id];
+  const [project, connections] = await Promise.all([
+    getProject(id),
+    listConnections(),
+  ]);
   if (!project) notFound();
 
+  const byId = new Map(connections.map((c) => [c.id, c]));
   const people = project.connectionIds
-    .map((cid) => connectionsById[cid])
-    .filter(Boolean);
+    .map((cid) => byId.get(cid))
+    .filter((c) => c !== undefined);
 
   return (
     <>
@@ -57,7 +61,7 @@ export default async function ProjectPage({
         </Section>
 
         <Section title="Tasks">
-          <TaskList tasks={project.tasks} />
+          <TaskList tasks={project.tasks} projectId={project.id} />
         </Section>
 
         <Section title="Timeline">
@@ -66,8 +70,4 @@ export default async function ProjectPage({
       </PageBody>
     </>
   );
-}
-
-export function generateStaticParams() {
-  return Object.keys(projectsById).map((id) => ({ id }));
 }
