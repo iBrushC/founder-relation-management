@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { me, connections, projects } from "@/lib/data";
+import { logout, requestPasswordReset } from "@/lib/auth/actions";
+import { useProfile } from "@/lib/data/hooks";
+import { saveProfile } from "@/lib/data/profile-actions";
+import { profileExtras } from "@/lib/data/profile-shared";
+import type { Profile } from "@/lib/data/profiles";
 import { Section } from "@/components/app/layout-bits";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
 import { SampleDataButton } from "@/components/app/sample-data-button";
@@ -272,17 +277,210 @@ function ExportRow({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Section: About — the editable profile form                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The "About" card. Its form state is seeded from `profile` via useState
+ * initializers, so the parent remounts it (via `key`) when the real profile
+ * loads rather than pushing new values in with an effect or a render-phase set.
+ */
+function AboutSection({
+  profile,
+  onSaved,
+}: {
+  profile: Profile | null;
+  onSaved: (profile: Profile) => void;
+}) {
+  const x = profileExtras(profile);
+  const email = profile?.email || me.email;
+
+  const [name, setName] = useState(profile?.fullName || me.name);
+  const [bio, setBio] = useState(x.bio ?? me.bio);
+  const [school, setSchool] = useState(x.school ?? me.school);
+  const [country, setCountry] = useState(x.country ?? me.country);
+  const [timezone, setTimezone] = useState(x.timezone ?? me.timezone);
+  const [resume, setResume] = useState<string | null>(x.resume ?? me.resume);
+
+  const [saving, startSaving] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  function handleSave() {
+    setSaveError(null);
+    setSaved(false);
+    startSaving(async () => {
+      const res = await saveProfile({
+        fullName: name,
+        bio,
+        school,
+        country,
+        timezone,
+        resume,
+      });
+      if (res.ok) {
+        onSaved(res.profile);
+        setSaved(true);
+      } else {
+        setSaveError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Section title="About">
+      <div className="rounded-lg border border-border bg-card">
+        <div className="flex items-center gap-3.5 border-b border-border p-4">
+          <InitialsAvatar name={name} tone="slate" className="size-12 text-sm" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">{name}</div>
+            <div className="truncate text-xs text-muted-foreground">{email}</div>
+          </div>
+          <Button variant="outline" size="sm" className="ml-auto">
+            <Icons.upload className="size-3.5" /> Change photo
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-4 p-4">
+          <Field label="Bio" htmlFor="bio">
+            <Textarea
+              id="bio"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="A sentence or two about what you're building."
+              className="min-h-16"
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Full name" htmlFor="name" icon={Icons.user}>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </Field>
+            <Field label="School / Company" htmlFor="school" icon={Icons.building}>
+              <Input
+                id="school"
+                value={school}
+                onChange={(e) => setSchool(e.target.value)}
+              />
+            </Field>
+            <Field label="Country" icon={Icons.globe}>
+              <Select value={country} onValueChange={setCountry}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[
+                    "United States",
+                    "Canada",
+                    "United Kingdom",
+                    "Germany",
+                    "India",
+                    "Singapore",
+                    "Australia",
+                    "Other",
+                  ].map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Timezone" icon={Icons.clock}>
+              <Select value={timezone} onValueChange={setTimezone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[
+                    ["America/Los_Angeles", "Pacific — Los Angeles"],
+                    ["America/Denver", "Mountain — Denver"],
+                    ["America/Chicago", "Central — Chicago"],
+                    ["America/New_York", "Eastern — New York"],
+                    ["Europe/London", "GMT — London"],
+                    ["Europe/Berlin", "CET — Berlin"],
+                    ["Asia/Kolkata", "IST — Kolkata"],
+                    ["Asia/Singapore", "SGT — Singapore"],
+                  ].map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <Field label="Resume" icon={Icons.file}>
+            {resume ? (
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+                <Icons.file className="size-4 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm font-medium">{resume}</span>
+                <div className="ml-auto flex shrink-0 gap-1">
+                  <Button variant="outline" size="sm">
+                    Replace
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={() => setResume(null)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" className="self-start">
+                <Icons.upload className="size-3.5" /> Upload resume
+              </Button>
+            )}
+          </Field>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-border px-4 py-3">
+          {saveError ? (
+            <span className="text-xs text-destructive">{saveError}</span>
+          ) : saved ? (
+            <span className="text-xs text-muted-foreground">Profile saved.</span>
+          ) : null}
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  The page body                                                     */
 /* ------------------------------------------------------------------ */
 
 export function SettingsView() {
-  // About
-  const [name, setName] = useState(me.name);
-  const [school, setSchool] = useState(me.school);
-  const [bio, setBio] = useState(me.bio);
-  const [country, setCountry] = useState(me.country);
-  const [timezone, setTimezone] = useState(me.timezone);
-  const [resume, setResume] = useState<string | null>(me.resume);
+  // The signed-in user's real profile (name/email + extended fields in settings).
+  const { profile, isLoading, mutate } = useProfile();
+  const email = profile?.email || me.email;
+
+  // Account actions — reset password and sign out.
+  const [resetting, startResetting] = useTransition();
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+  function handleResetPassword() {
+    setResetMsg(null);
+    startResetting(async () => {
+      const res = await requestPasswordReset();
+      setResetMsg(
+        res.ok
+          ? "Reset link sent — check your email."
+          : "Couldn't send a reset link.",
+      );
+    });
+  }
+
+  const [loggingOut, startLoggingOut] = useTransition();
 
   // Notifications
   const [checkins, setCheckins] = useState({ on: true, value: 6, unit: "weeks" });
@@ -296,123 +494,16 @@ export function SettingsView() {
   return (
     <div className="flex flex-col gap-7">
       {/* ---- About ---- */}
-      <Section title="About">
-        <div className="rounded-lg border border-border bg-card">
-          <div className="flex items-center gap-3.5 border-b border-border p-4">
-            <InitialsAvatar name={name} tone="slate" className="size-12 text-sm" />
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{name}</div>
-              <div className="truncate text-xs text-muted-foreground">
-                {me.role}
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="ml-auto">
-              <Icons.upload className="size-3.5" /> Change photo
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-4 p-4">
-            <Field label="Bio" htmlFor="bio">
-              <Textarea
-                id="bio"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="A sentence or two about what you're building."
-                className="min-h-16"
-              />
-            </Field>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Full name" htmlFor="name" icon={Icons.user}>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </Field>
-              <Field label="School / Company" htmlFor="school" icon={Icons.building}>
-                <Input
-                  id="school"
-                  value={school}
-                  onChange={(e) => setSchool(e.target.value)}
-                />
-              </Field>
-              <Field label="Country" icon={Icons.globe}>
-                <Select value={country} onValueChange={setCountry}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      "United States",
-                      "Canada",
-                      "United Kingdom",
-                      "Germany",
-                      "India",
-                      "Singapore",
-                      "Australia",
-                      "Other",
-                    ].map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Timezone" icon={Icons.clock}>
-                <Select value={timezone} onValueChange={setTimezone}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      ["America/Los_Angeles", "Pacific — Los Angeles"],
-                      ["America/Denver", "Mountain — Denver"],
-                      ["America/Chicago", "Central — Chicago"],
-                      ["America/New_York", "Eastern — New York"],
-                      ["Europe/London", "GMT — London"],
-                      ["Europe/Berlin", "CET — Berlin"],
-                      ["Asia/Kolkata", "IST — Kolkata"],
-                      ["Asia/Singapore", "SGT — Singapore"],
-                    ].map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-
-            <Field label="Resume" icon={Icons.file}>
-              {resume ? (
-                <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
-                  <Icons.file className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-sm font-medium">{resume}</span>
-                  <div className="ml-auto flex shrink-0 gap-1">
-                    <Button variant="outline" size="sm">
-                      Replace
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground"
-                      onClick={() => setResume(null)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button variant="outline" size="sm" className="self-start">
-                  <Icons.upload className="size-3.5" /> Upload resume
-                </Button>
-              )}
-            </Field>
-          </div>
-        </div>
-      </Section>
+      {/*
+        Keyed by the profile id so the form remounts — and re-seeds its state
+        from the loaded profile via useState initializers — once the real
+        profile arrives. This avoids setting state during the parent's render.
+      */}
+      <AboutSection
+        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        profile={profile}
+        onSaved={(p) => mutate(p, { revalidate: false })}
+      />
 
       {/* ---- Notification Settings ---- */}
       <Section title="Notification Settings">
@@ -480,7 +571,7 @@ export function SettingsView() {
             name="Google"
             description="Sync contacts and calendar events."
             connected={google}
-            account={me.email}
+            account={email}
             onToggle={() => setGoogle((v) => !v)}
           />
           <IntegrationRow
@@ -536,13 +627,28 @@ export function SettingsView() {
             title="Password"
             description="Send a reset link to your email address."
           >
-            <Button variant="outline" size="sm">
-              <Icons.key className="size-3.5" /> Reset password
+            {resetMsg ? (
+              <span className="text-xs text-muted-foreground">{resetMsg}</span>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetPassword}
+              disabled={resetting}
+            >
+              <Icons.key className="size-3.5" />
+              {resetting ? "Sending…" : "Reset password"}
             </Button>
           </Row>
           <Row title="Sign out" description="End your session on this device.">
-            <Button variant="secondary" size="sm">
-              <Icons.logout className="size-3.5" /> Log out
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => startLoggingOut(() => logout())}
+              disabled={loggingOut}
+            >
+              <Icons.logout className="size-3.5" />
+              {loggingOut ? "Signing out…" : "Log out"}
             </Button>
           </Row>
         </Card>

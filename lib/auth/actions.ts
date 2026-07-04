@@ -82,3 +82,20 @@ export async function logout(): Promise<void> {
   await supabase.auth.signOut();
   redirect("/login");
 }
+
+/**
+ * Email the signed-in user a password-reset link. The link lands on the URL
+ * configured as the Supabase project's Site URL. Returns a plain result so the
+ * Settings UI can show inline feedback without exposing whether the address
+ * exists.
+ */
+export async function requestPasswordReset(): Promise<{ ok: boolean }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) return { ok: false };
+
+  const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+  return { ok: !error };
+}
