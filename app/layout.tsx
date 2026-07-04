@@ -18,7 +18,7 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SFRM — Student Founder Relations",
+  title: "SFRM",
   description: "A simple rolodex for student founders: people, projects, and follow-ups in one place.",
 };
 
