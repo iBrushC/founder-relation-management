@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import {
   connections,
@@ -13,8 +13,12 @@ import {
   projectStages,
   projectTasks,
   projects,
+  type ConnectionNote,
   type EventCategory,
+  type Interaction,
   type Subtask,
+  type Tag,
+  type Tone,
 } from "@/drizzle/schema";
 import {
   me,
@@ -314,5 +318,321 @@ export async function removeConnection(id: string): Promise<void> {
 export async function removeEvent(id: string): Promise<void> {
   await withUserRLS((tx) => tx.delete(events).where(eq(events.id, id)));
   revalidatePath("/events");
+  revalidatePath("/");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Edits — in-place updates to existing rows                          */
+/* ------------------------------------------------------------------ */
+
+/** Trim a string; treat empty/whitespace as "cleared" (null in the DB). */
+function orNull(s: string | undefined | null): string | null {
+  const t = s?.trim();
+  return t ? t : null;
+}
+
+/**
+ * Update a connection's editable fields. Tags and avatar tone are set from the
+ * inline panel; birthday arrives as an ISO date (or null to clear). Timeline and
+ * notes have their own actions below since they're read-modify-write on JSONB.
+ */
+export async function updateConnection(
+  id: string,
+  patch: {
+    name: string;
+    role?: string;
+    company?: string;
+    email?: string;
+    phone?: string;
+    location?: string;
+    birthday?: string | null;
+    tags?: Tag[];
+    avatarTone?: Tone;
+  },
+): Promise<void> {
+  const name = patch.name.trim();
+  if (!name) return;
+
+  await withUserRLS((tx) =>
+    tx
+      .update(connections)
+      .set({
+        name,
+        role: orNull(patch.role),
+        company: orNull(patch.company),
+        email: orNull(patch.email),
+        phone: orNull(patch.phone),
+        location: orNull(patch.location),
+        birthday: patch.birthday ?? null,
+        ...(patch.tags ? { tags: patch.tags } : {}),
+        ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
+      })
+      .where(eq(connections.id, id)),
+  );
+  revalidatePath("/connections");
+  revalidatePath("/");
+}
+
+/** Prepend one entry to a connection's interaction timeline (most-recent first). */
+export async function logInteraction(
+  connectionId: string,
+  interaction: Interaction,
+): Promise<void> {
+  const label = interaction.label.trim();
+  if (!label) return;
+  const when = interaction.when.trim() || "Just now";
+
+  await withUserRLS(async (tx) => {
+    const [row] = await tx
+      .select({ interactions: connections.interactions })
+      .from(connections)
+      .where(eq(connections.id, connectionId));
+    if (!row) return;
+    await tx
+      .update(connections)
+      .set({ interactions: [{ label, when }, ...(row.interactions ?? [])] })
+      .where(eq(connections.id, connectionId));
+  });
+  revalidatePath("/connections");
+  revalidatePath("/");
+}
+
+/** Replace a connection's whole timeline (used to edit/reorder/delete entries). */
+export async function updateInteractions(
+  connectionId: string,
+  interactions: Interaction[],
+): Promise<void> {
+  await withUserRLS((tx) =>
+    tx
+      .update(connections)
+      .set({ interactions })
+      .where(eq(connections.id, connectionId)),
+  );
+  revalidatePath("/connections");
+  revalidatePath("/");
+}
+
+/**
+ * Upsert a connection's single visible note. The UI edits one note; an empty
+ * body clears it. Preserves the existing note's id/createdAt when present.
+ */
+export async function updateConnectionNote(
+  connectionId: string,
+  body: string,
+): Promise<void> {
+  const text = body.trim();
+
+  await withUserRLS(async (tx) => {
+    const [row] = await tx
+      .select({ notes: connections.notes })
+      .from(connections)
+      .where(eq(connections.id, connectionId));
+    if (!row) return;
+
+    const existing = row.notes?.[0];
+    const notes: ConnectionNote[] = !text
+      ? []
+      : [
+          {
+            id: existing?.id ?? randomUUID(),
+            body: text,
+            createdAt: existing?.createdAt ?? new Date().toISOString(),
+          },
+        ];
+    await tx
+      .update(connections)
+      .set({ notes })
+      .where(eq(connections.id, connectionId));
+  });
+  revalidatePath("/connections");
+  revalidatePath("/");
+}
+
+/** Update an event's editable fields. Date is required; the rest may clear. */
+export async function updateEvent(
+  id: string,
+  patch: {
+    name: string;
+    eventDate: string;
+    location?: string;
+    organizers?: string[];
+    metGuests?: string[];
+    note?: string;
+    avatarTone?: Tone;
+  },
+): Promise<void> {
+  const name = patch.name.trim();
+  if (!name || !patch.eventDate) return;
+
+  await withUserRLS((tx) =>
+    tx
+      .update(events)
+      .set({
+        name,
+        category: categoryFor(name),
+        eventDate: patch.eventDate,
+        location: orNull(patch.location),
+        note: orNull(patch.note),
+        ...(patch.organizers ? { organizers: patch.organizers } : {}),
+        ...(patch.metGuests ? { metGuests: patch.metGuests } : {}),
+        ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
+      })
+      .where(eq(events.id, id)),
+  );
+  revalidatePath("/events");
+  revalidatePath("/");
+}
+
+/** Update a project's editable fields (header + presentation). */
+export async function updateProject(
+  id: string,
+  patch: {
+    name: string;
+    summary?: string;
+    description?: string;
+    statusLabel?: string;
+    statusTone?: Tone;
+    icon?: string;
+    tone?: Tone;
+  },
+): Promise<void> {
+  const name = patch.name.trim();
+  if (!name) return;
+
+  await withUserRLS((tx) =>
+    tx
+      .update(projects)
+      .set({
+        name,
+        summary: orNull(patch.summary),
+        description: orNull(patch.description),
+        statusLabel: orNull(patch.statusLabel),
+        ...(patch.statusTone ? { statusTone: patch.statusTone } : {}),
+        ...(patch.icon ? { icon: patch.icon } : {}),
+        ...(patch.tone ? { tone: patch.tone } : {}),
+      })
+      .where(eq(projects.id, id)),
+  );
+  revalidatePath(`/projects/${id}`);
+  revalidatePath("/projects");
+  revalidatePath("/");
+}
+
+export async function removeProject(id: string): Promise<void> {
+  await withUserRLS((tx) => tx.delete(projects).where(eq(projects.id, id)));
+  revalidatePath("/projects");
+  revalidatePath("/");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Project tasks                                                       */
+/* ------------------------------------------------------------------ */
+
+/** Append a task to a project (new tasks sort to the end). */
+export async function createTask(
+  projectId: string,
+  input: { label: string; dueDate?: string | null; description?: string },
+): Promise<void> {
+  const user = await verifySession();
+  const label = input.label.trim();
+  if (!label) return;
+
+  await withUserRLS(async (tx) => {
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(projectTasks)
+      .where(eq(projectTasks.projectId, projectId));
+    await tx.insert(projectTasks).values({
+      ownerId: user.userId,
+      projectId,
+      label,
+      dueDate: input.dueDate ?? null,
+      description: orNull(input.description),
+      position: count,
+    });
+  });
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+/** Edit a task's label, due date, and/or description. */
+export async function updateTask(
+  taskId: string,
+  patch: { label?: string; dueDate?: string | null; description?: string },
+  projectId?: string,
+): Promise<void> {
+  const set: Partial<{
+    label: string;
+    dueDate: string | null;
+    description: string | null;
+  }> = {};
+  if (patch.label !== undefined) {
+    const label = patch.label.trim();
+    if (!label) return;
+    set.label = label;
+  }
+  if (patch.dueDate !== undefined) set.dueDate = patch.dueDate ?? null;
+  if (patch.description !== undefined) set.description = orNull(patch.description);
+  if (Object.keys(set).length === 0) return;
+
+  await withUserRLS((tx) =>
+    tx.update(projectTasks).set(set).where(eq(projectTasks.id, taskId)),
+  );
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+export async function removeTask(
+  taskId: string,
+  projectId?: string,
+): Promise<void> {
+  await withUserRLS((tx) =>
+    tx.delete(projectTasks).where(eq(projectTasks.id, taskId)),
+  );
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Project participants (linked people)                               */
+/* ------------------------------------------------------------------ */
+
+/** Link an existing connection to a project. Idempotent on the composite PK. */
+export async function linkParticipant(
+  projectId: string,
+  connectionId: string,
+  role?: string,
+): Promise<void> {
+  const user = await verifySession();
+  await withUserRLS((tx) =>
+    tx
+      .insert(projectParticipants)
+      .values({
+        ownerId: user.userId,
+        projectId,
+        connectionId,
+        role: orNull(role),
+      })
+      .onConflictDoNothing(),
+  );
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+export async function unlinkParticipant(
+  projectId: string,
+  connectionId: string,
+): Promise<void> {
+  await withUserRLS((tx) =>
+    tx
+      .delete(projectParticipants)
+      .where(
+        and(
+          eq(projectParticipants.projectId, projectId),
+          eq(projectParticipants.connectionId, connectionId),
+        ),
+      ),
+  );
+  revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
 }

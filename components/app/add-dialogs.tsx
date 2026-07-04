@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Icons } from "@/lib/icons";
+import type { Connection, EventItem, Project } from "@/lib/data";
 import {
   createConnection,
   createEvent,
   createProject,
 } from "@/lib/data/actions";
+import { formatWhen, isUpcoming } from "@/lib/data/format";
+import {
+  ConnectionsList,
+  EventsList,
+  ProjectsList,
+} from "@/components/app/list-contexts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,9 +31,15 @@ import {
 
 /**
  * The three "add" dialogs behind the page-header buttons. Each collects a few
- * fields, calls its Server Action, and closes on success — the action
- * revalidates the page so the new row appears.
+ * fields, then hands an *optimistic* row to its list context — the new row pops
+ * in immediately — while the Server Action persists and revalidates in the
+ * background. The temporary row is swapped for the real one atomically on commit.
  */
+
+/** A client-only id for the optimistic row; the real DB id replaces it on commit. */
+function tempId(): string {
+  return `optimistic-${crypto.randomUUID()}`;
+}
 
 function Field({
   label,
@@ -48,18 +61,39 @@ function Field({
 }
 
 export function AddConnectionDialog() {
+  const list = ConnectionsList.useList();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", role: "", company: "", email: "" });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   function submit() {
-    startTransition(async () => {
-      await createConnection(form);
-      setForm({ name: "", role: "", company: "", email: "" });
-      setOpen(false);
-    });
+    const input = {
+      name: form.name.trim(),
+      role: form.role.trim(),
+      company: form.company.trim(),
+      email: form.email.trim(),
+    };
+    // Mirror the row `createConnection` will produce (avatarTone defaults to "slate").
+    const optimistic: Connection = {
+      id: tempId(),
+      name: input.name,
+      role: input.role,
+      company: input.company,
+      avatarTone: "slate",
+      tags: [],
+      last: "Just now",
+      rank: -1,
+      email: input.email,
+      phone: "",
+      location: "",
+      birthday: "—",
+      note: "",
+      timeline: [],
+    };
+    list.add(optimistic, () => createConnection(input));
+    setForm({ name: "", role: "", company: "", email: "" });
+    setOpen(false);
   }
 
   return (
@@ -94,7 +128,7 @@ export function AddConnectionDialog() {
           <DialogClose asChild>
             <Button variant="ghost">Cancel</Button>
           </DialogClose>
-          <Button disabled={!form.name.trim() || pending} onClick={submit}>
+          <Button disabled={!form.name.trim()} onClick={submit}>
             <Icons.plus className="size-4" /> Add
           </Button>
         </DialogFooter>
@@ -104,18 +138,35 @@ export function AddConnectionDialog() {
 }
 
 export function AddEventDialog() {
+  const list = EventsList.useList();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", eventDate: "", location: "" });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   function submit() {
-    startTransition(async () => {
-      await createEvent(form);
-      setForm({ name: "", eventDate: "", location: "" });
-      setOpen(false);
-    });
+    const input = {
+      name: form.name.trim(),
+      eventDate: form.eventDate,
+      location: form.location.trim(),
+    };
+    const optimistic: EventItem = {
+      id: tempId(),
+      name: input.name,
+      when: formatWhen(input.eventDate),
+      date: input.eventDate,
+      where: input.location,
+      organizers: [],
+      metIds: [],
+      metGuests: [],
+      note: "",
+      upcoming: isUpcoming(input.eventDate),
+      avatarTone: "slate",
+      rank: -1,
+    };
+    list.add(optimistic, () => createEvent(input));
+    setForm({ name: "", eventDate: "", location: "" });
+    setOpen(false);
   }
 
   return (
@@ -148,7 +199,7 @@ export function AddEventDialog() {
             <Button variant="ghost">Cancel</Button>
           </DialogClose>
           <Button
-            disabled={!form.name.trim() || !form.eventDate || pending}
+            disabled={!form.name.trim() || !form.eventDate}
             onClick={submit}
           >
             <Icons.plus className="size-4" /> Add
@@ -160,16 +211,28 @@ export function AddEventDialog() {
 }
 
 export function AddProjectDialog() {
+  const list = ProjectsList.useList();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", summary: "" });
 
   function submit() {
-    startTransition(async () => {
-      await createProject(form);
-      setForm({ name: "", summary: "" });
-      setOpen(false);
-    });
+    const input = { name: form.name.trim(), summary: form.summary.trim() };
+    // Mirror `createProject`'s defaults: "folder" icon, slate tone, Active status.
+    const optimistic: Project = {
+      id: tempId(),
+      name: input.name,
+      icon: "folder",
+      tone: "slate",
+      summary: input.summary,
+      description: "",
+      status: { label: "Active", tone: "green" },
+      connectionIds: [],
+      tasks: [],
+      phases: [],
+    };
+    list.add(optimistic, () => createProject(input));
+    setForm({ name: "", summary: "" });
+    setOpen(false);
   }
 
   return (
@@ -206,7 +269,7 @@ export function AddProjectDialog() {
           <DialogClose asChild>
             <Button variant="ghost">Cancel</Button>
           </DialogClose>
-          <Button disabled={!form.name.trim() || pending} onClick={submit}>
+          <Button disabled={!form.name.trim()} onClick={submit}>
             <Icons.plus className="size-4" /> Create
           </Button>
         </DialogFooter>

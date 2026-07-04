@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection, EventItem } from "@/lib/data";
 import { removeEvent } from "@/lib/data/actions";
 import { toneInk } from "@/lib/tone";
+import { popProps, staticList } from "@/components/app/reactive-list";
+import { EventsList } from "@/components/app/list-contexts";
 import { InitialsAvatar, AvatarStack, StatusBadge } from "@/components/app/primitives";
 import {
   Table,
@@ -58,17 +60,28 @@ export function EventsView({
   connectionsById,
   showControls = false,
 }: {
-  events: EventItem[];
+  /** Static rows for surfaces without a list provider. */
+  events?: EventItem[];
   connectionsById: Record<string, Connection>;
   showControls?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [when, setWhen] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [intent, setIntent] = useState<"view" | "edit">("view");
+
+  const openPanel = (id: string, next: "view" | "edit") => {
+    setIntent(next);
+    setSelectedId(id);
+  };
+
+  // Use the page's optimistic list when present; otherwise render props statically.
+  const list = EventsList.useOptional() ?? staticList(events ?? []);
+  const rows = list.items;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return events.filter((e) => {
+    return rows.filter((e) => {
       const matchesQuery =
         !q ||
         [e.name, e.where, ...e.organizers].some((f) =>
@@ -79,9 +92,9 @@ export function EventsView({
         (when === "upcoming" ? e.upcoming : !e.upcoming);
       return matchesQuery && matchesWhen;
     });
-  }, [events, query, when]);
+  }, [rows, query, when]);
 
-  const selected = events.find((e) => e.id === selectedId) ?? null;
+  const selected = rows.find((e) => e.id === selectedId) ?? null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -135,11 +148,13 @@ export function EventsView({
           <TableBody>
             {filtered.map((e) => {
               const met = metPeople(e, connectionsById);
+              const pop = popProps(list, e.id);
               return (
                 <TableRow
                   key={e.id}
-                  onClick={() => setSelectedId(e.id)}
-                  className="cursor-pointer"
+                  onClick={pop.exiting ? undefined : () => openPanel(e.id, "view")}
+                  onAnimationEnd={pop.onAnimationEnd}
+                  className={cn("cursor-pointer", pop.className)}
                 >
                   <TableCell className="py-2 pl-4">
                     <div className="flex items-center gap-2.5">
@@ -169,7 +184,10 @@ export function EventsView({
                     )}
                   </TableCell>
                   <TableCell className="pr-2">
-                    <RowActions onRemove={() => removeEvent(e.id)} />
+                    <RowActions
+                      onEdit={() => openPanel(e.id, "edit")}
+                      onRemove={() => list.remove(e.id, () => removeEvent(e.id))}
+                    />
                   </TableCell>
                 </TableRow>
               );
@@ -193,19 +211,29 @@ export function EventsView({
         connectionsById={connectionsById}
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
+        initialEditing={intent === "edit"}
       />
     </div>
   );
 }
 
 /** Frequently-used actions promoted to the row; the rest live in the menu. */
-function RowActions({ onRemove }: { onRemove: () => void }) {
-  const [, startTransition] = useTransition();
+function RowActions({
+  onEdit,
+  onRemove,
+}: {
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const handle = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
   return (
     <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
       <IconAction icon={Icons.calendar} label="Add to calendar" onClick={stop} />
-      <IconAction icon={Icons.edit} label="Edit" onClick={stop} />
+      <IconAction icon={Icons.edit} label="Edit" onClick={handle(onEdit)} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -220,7 +248,7 @@ function RowActions({ onRemove }: { onRemove: () => void }) {
         <DropdownMenuContent align="end" onClick={stop}>
           <DropdownMenuItem
             className={cn("focus:bg-destructive/10", toneInk.red)}
-            onSelect={() => startTransition(onRemove)}
+            onSelect={onRemove}
           >
             <Icons.x className="size-4" /> Remove
           </DropdownMenuItem>

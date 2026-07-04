@@ -6,6 +6,7 @@ import { ProjectRow } from "@/components/app/rows";
 import { UpdatesView } from "@/components/app/updates-view";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { AddConnectionDialog } from "@/components/app/add-dialogs";
+import { ConnectionsProvider } from "@/components/app/list-contexts";
 import { Button } from "@/components/ui/button";
 
 export default async function HomePage() {
@@ -23,7 +24,7 @@ export default async function HomePage() {
   );
 
   return (
-    <>
+    <ConnectionsProvider server={connections}>
       <PageHeader
         title="Home"
         description={`${connections.length} people to keep up with, ${openTasks} tasks open.`}
@@ -54,7 +55,7 @@ export default async function HomePage() {
             </Button>
           }
         >
-          <ConnectionsView connections={connections} />
+          <ConnectionsView />
         </Section>
 
         <Section
@@ -74,6 +75,6 @@ export default async function HomePage() {
           </div>
         </Section>
       </PageBody>
-    </>
+    </ConnectionsProvider>
   );
 }

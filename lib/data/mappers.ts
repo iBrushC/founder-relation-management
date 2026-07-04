@@ -63,6 +63,7 @@ export function toEvent(row: EventRow, metIds: string[], rank: number): EventIte
     id: row.id,
     name: row.name,
     when: formatWhen(row.eventDate),
+    date: row.eventDate,
     where: row.location ?? "",
     organizers: row.organizers ?? [],
     metIds,

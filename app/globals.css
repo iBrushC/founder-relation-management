@@ -154,4 +154,60 @@
     text-transform: uppercase;
     color: var(--muted-foreground);
   }
+
+  /*
+    Optimistic-list motion — a minimal pop marking a row appearing or leaving.
+    Applied per-row by `popProps` (components/app/reactive-list.tsx). Kept subtle
+    and brief per the design direction.
+
+    The enter pairs a `transform` pop with a brief background highlight: the
+    transform reads on block rows (project `<div>`s) but is *ignored on table
+    rows* (`<tr>`), so the highlight is what makes an added connection/event
+    visibly "pop in". The leave commit no longer depends on `animationend`
+    firing (a `<tr>` may not) — reactive-list has a timeout backstop — but when
+    it does fire it drives the removal precisely.
+  */
+  .sfrm-pop-in {
+    animation: sfrm-pop-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .sfrm-pop-out {
+    animation: sfrm-pop-out 0.16s ease-in both;
+    transform-origin: center;
+  }
+}
+
+@keyframes sfrm-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+    background-color: var(--accent);
+  }
+  55% {
+    opacity: 1;
+    background-color: var(--accent);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    background-color: transparent;
+  }
+}
+
+@keyframes sfrm-pop-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* Honor reduced-motion: collapse the pop to a near-instant, still-committing tick. */
+@media (prefers-reduced-motion: reduce) {
+  .sfrm-pop-in,
+  .sfrm-pop-out {
+    animation-duration: 0.01ms;
+  }
 }

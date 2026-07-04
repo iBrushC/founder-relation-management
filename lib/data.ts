@@ -38,6 +38,8 @@ export type EventItem = {
   name: string;
   /** Human label for when it happens, e.g. "Jul 12" or "in 2 days". */
   when: string;
+  /** Raw ISO event date (YYYY-MM-DD); backs the edit form's date input. */
+  date?: string;
   where: string;
   /** Who ran the event (orgs or people). */
   organizers: string[];

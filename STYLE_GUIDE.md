@@ -51,6 +51,11 @@ Wired in [`app/layout.tsx`](app/layout.tsx); utilities in `globals.css`.
   - Clicking a **connection** or **update** row opens a right `Sheet` with related people/projects.
   - **Tasks** hide descriptions/subtasks behind a comment icon that only appears when detail exists.
 - **Promote frequent actions.** High-use row actions (Edit, Log) live inline as tooltip icon-buttons; rare/destructive ones (Remove) stay in the `⋯` menu.
+- **Optimistic & reactive.** Adding or removing a record must feel instant — never make the user wait on a server round-trip to see their change.
+  - **Optimistic:** assume the write succeeds and update the UI immediately. On add, insert a stand-in row now (built to mirror the row the server will return) and let the Server Action persist + revalidate in the background; the real row swaps in on commit. On remove, drop the row now.
+  - **Reactive:** mark every appearance/disappearance with a minimal pop — a brief fade + slight rise on enter, a fade + slight shrink on leave (~0.16–0.18s). Enough to register the change, never enough to slow it down. Honors `prefers-reduced-motion`.
+  - **One system.** Route all list add/remove through `useReactiveList` + `popProps` ([`components/app/reactive-list.tsx`](components/app/reactive-list.tsx)); the header's Add control and the body's table share one optimistic list via a per-record context ([`list-contexts.tsx`](components/app/list-contexts.tsx)). Motion is the `.sfrm-pop-in` / `.sfrm-pop-out` pair in `globals.css`. Don't hand-roll per-surface optimism or animation.
+  - **Enter is for the new, not the routine.** Only user-added rows pop in — initial load and filtering stay still, in keeping with the calm working-tool feel.
 
 ## Components
 
@@ -75,3 +80,4 @@ Wired in [`app/layout.tsx`](app/layout.tsx); utilities in `globals.css`.
 - [ ] Rows use `hover:bg-muted/50`; controls are `cursor-pointer`
 - [ ] Tokens over raw values; reuse `Tag`/`StatusBadge`/`Icons`
 - [ ] Secondary detail hidden behind an affordance, not always-on
+- [ ] Add/remove is optimistic + pops via `useReactiveList`/`popProps`; no waiting on the server to reflect the change

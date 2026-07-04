@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection } from "@/lib/data";
 import { removeConnection } from "@/lib/data/actions";
 import { toneInk } from "@/lib/tone";
+import { popProps, staticList } from "@/components/app/reactive-list";
+import { ConnectionsList } from "@/components/app/list-contexts";
 import { Tag, InitialsAvatar } from "@/components/app/primitives";
 import {
   Table,
@@ -41,31 +43,42 @@ export function ConnectionsView({
   connections,
   showControls = false,
 }: {
-  connections: Connection[];
+  /** Static rows for surfaces without a list provider (e.g. a project's people). */
+  connections?: Connection[];
   showControls?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [intent, setIntent] = useState<"view" | "edit" | "log">("view");
+
+  const openPanel = (id: string, next: "view" | "edit" | "log") => {
+    setIntent(next);
+    setSelectedId(id);
+  };
+
+  // Use the page's optimistic list when present; otherwise render the props statically.
+  const list = ConnectionsList.useOptional() ?? staticList(connections ?? []);
+  const rows = list.items;
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
-    connections.forEach((c) => c.tags.forEach((t) => set.add(t.label)));
+    rows.forEach((c) => c.tags.forEach((t) => set.add(t.label)));
     return Array.from(set).sort();
-  }, [connections]);
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return connections.filter((c) => {
+    return rows.filter((c) => {
       const matchesQuery =
         !q ||
         [c.name, c.role, c.company].some((f) => f.toLowerCase().includes(q));
       const matchesTag = tag === "all" || c.tags.some((t) => t.label === tag);
       return matchesQuery && matchesTag;
     });
-  }, [connections, query, tag]);
+  }, [rows, query, tag]);
 
-  const selected = connections.find((c) => c.id === selectedId) ?? null;
+  const selected = rows.find((c) => c.id === selectedId) ?? null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -120,11 +133,14 @@ export function ConnectionsView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((c) => (
+            {filtered.map((c) => {
+              const pop = popProps(list, c.id);
+              return (
               <TableRow
                 key={c.id}
-                onClick={() => setSelectedId(c.id)}
-                className="cursor-pointer"
+                onClick={pop.exiting ? undefined : () => openPanel(c.id, "view")}
+                onAnimationEnd={pop.onAnimationEnd}
+                className={cn("cursor-pointer", pop.className)}
               >
                 <TableCell className="py-2 pl-4">
                   <div className="flex items-center gap-2.5">
@@ -146,10 +162,17 @@ export function ConnectionsView({
                   {c.last}
                 </TableCell>
                 <TableCell className="pr-2">
-                  <RowActions onRemove={() => removeConnection(c.id)} />
+                  <RowActions
+                    onEdit={() => openPanel(c.id, "edit")}
+                    onLog={() => openPanel(c.id, "log")}
+                    onRemove={() =>
+                      list.remove(c.id, () => removeConnection(c.id))
+                    }
+                  />
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
             {filtered.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell
@@ -168,19 +191,36 @@ export function ConnectionsView({
         connection={selected}
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
+        initialEditing={intent === "edit"}
+        initialLogOpen={intent === "log"}
       />
     </div>
   );
 }
 
 /** Frequently-used actions promoted to the row; the rest live in the menu. */
-function RowActions({ onRemove }: { onRemove: () => void }) {
-  const [, startTransition] = useTransition();
+function RowActions({
+  onEdit,
+  onLog,
+  onRemove,
+}: {
+  onEdit: () => void;
+  onLog: () => void;
+  onRemove: () => void;
+}) {
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const handle = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
   return (
     <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
-      <IconAction icon={Icons.message} label="Log interaction" onClick={stop} />
-      <IconAction icon={Icons.edit} label="Edit" onClick={stop} />
+      <IconAction
+        icon={Icons.message}
+        label="Log interaction"
+        onClick={handle(onLog)}
+      />
+      <IconAction icon={Icons.edit} label="Edit" onClick={handle(onEdit)} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -195,7 +235,7 @@ function RowActions({ onRemove }: { onRemove: () => void }) {
         <DropdownMenuContent align="end" onClick={stop}>
           <DropdownMenuItem
             className={cn("focus:bg-destructive/10", toneInk.red)}
-            onSelect={() => startTransition(onRemove)}
+            onSelect={onRemove}
           >
             <Icons.x className="size-4" /> Remove
           </DropdownMenuItem>
