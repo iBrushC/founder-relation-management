@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { me } from "@/lib/data";
 import { initials } from "@/lib/tone";
+import { logout } from "@/lib/auth/actions";
+import { useProfile } from "@/lib/data/hooks";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,11 @@ function isActive(pathname: string, href: string) {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { profile } = useProfile();
+
+  // Fall back to demo data until the profile loads (or Supabase isn't configured).
+  const name = profile?.fullName || me.name;
+  const secondary = profile?.email || me.role;
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -72,14 +79,14 @@ export function Sidebar() {
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors outline-none hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-sidebar-ring aria-expanded:bg-sidebar-accent/50"
             >
               <span className="grid size-8 shrink-0 place-items-center rounded-full tone-slate text-xs font-semibold">
-                {initials(me.name)}
+                {initials(name)}
               </span>
               <div className="min-w-0 leading-tight">
                 <div className="truncate text-sm font-medium text-sidebar-foreground">
-                  {me.name}
+                  {name}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {me.role}
+                  {secondary}
                 </div>
               </div>
               <Icons.dots className="ml-auto size-4 shrink-0 text-muted-foreground" />
@@ -96,7 +103,7 @@ export function Sidebar() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => logout()}>
               <Icons.logout className="size-4" /> Log out
             </DropdownMenuItem>
           </DropdownMenuContent>

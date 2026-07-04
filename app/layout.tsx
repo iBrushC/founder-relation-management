@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, Space_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/app/sidebar";
-import { TopBar } from "@/components/app/topbar";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const ibm = IBM_Plex_Sans({
   variable: "--font-ibm",
@@ -27,17 +24,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${ibm.variable} ${spaceMono.variable} h-full antialiased`}>
-      <body className="h-full">
-        <TooltipProvider delayDuration={200}>
-          <div className="flex h-full">
-            <Sidebar />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <TopBar />
-              <main className="flex-1 overflow-y-auto">{children}</main>
-            </div>
-          </div>
-        </TooltipProvider>
-      </body>
+      <body className="h-full">{children}</body>
     </html>
   );
 }
