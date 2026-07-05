@@ -39,6 +39,8 @@ import {
   Link,
   Google,
   Linkedin,
+  Send,
+  Trash,
 } from "@mynaui/icons-react";
 
 export const Icons = {
@@ -82,6 +84,8 @@ export const Icons = {
   link: Link,
   google: Google,
   linkedin: Linkedin,
+  send: Send,
+  trash: Trash,
 } as const;
 
 export type IconKey = keyof typeof Icons;

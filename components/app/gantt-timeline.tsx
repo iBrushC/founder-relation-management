@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { toneBg } from "@/lib/tone";
 import type { Phase } from "@/lib/data";
 
 const DAY_MS = 86_400_000;
-/** Days visible in the default viewport; the rest scrolls horizontally. */
-const VISIBLE_DAYS = 14;
-/** Fallback px/day before the viewport width is measured. */
-const FALLBACK_DAY_WIDTH = 24;
-const TICK_EVERY = 7; // day interval between axis labels/gridlines
+const TICK_EVERY = 7; // day interval between axis labels/gridlines (weekly)
 const TODAY = "2026-07-03";
 
 const MONTHS = [
@@ -30,20 +26,20 @@ function fmtDay(day: number) {
 }
 
 /**
- * Gantt-style timeline — days run along the horizontal axis and each stage is
- * a block spanning its start → end date, so overlapping stages read at a glance.
- * The viewport defaults to a 14-day window (days are sized so exactly 14 fit),
- * scrolls horizontally for longer projects, and opens centered on today.
+ * Gantt-style timeline — days run along the horizontal axis and each stage is a
+ * block spanning its start → end date, so overlapping stages read at a glance.
+ * The whole project span (earliest start → latest end) is scaled to fit the
+ * frame exactly, so every week is visible at once with no horizontal scrolling.
  */
 export function GanttTimeline({ phases }: { phases: Phase[] }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [viewportWidth, setViewportWidth] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackWidth, setTrackWidth] = useState(0);
 
-  // Track the scrollable viewport's width so 14 days can fill it exactly.
+  // Measure the track so the full date range can be scaled to fill it exactly.
   useLayoutEffect(() => {
-    const el = scrollRef.current;
+    const el = trackRef.current;
     if (!el) return;
-    const measure = () => setViewportWidth(el.clientWidth);
+    const measure = () => setTrackWidth(el.clientWidth);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -56,21 +52,8 @@ export function GanttTimeline({ phases }: { phases: Phase[] }) {
   const max = phases.length ? Math.max(...ends) : 0;
   const totalDays = max - min + 1;
 
-  const dayWidth =
-    viewportWidth > 0 ? viewportWidth / VISIBLE_DAYS : FALLBACK_DAY_WIDTH;
-  const trackWidth = totalDays * dayWidth;
-
-  const todayDay = toDay(TODAY);
-  const todayInRange = todayDay >= min && todayDay <= max;
-
-  // Open scrolled so today (or the project start) sits near the left edge.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || viewportWidth === 0 || phases.length === 0) return;
-    const anchor = todayInRange ? todayDay : min;
-    const target = (anchor - min - 2) * dayWidth; // 2-day lead-in
-    el.scrollLeft = Math.max(0, Math.min(target, trackWidth - viewportWidth));
-  }, [viewportWidth, dayWidth, min, todayDay, todayInRange, trackWidth, phases.length]);
+  // Scale so the entire span fills the measured width — no scroll.
+  const dayWidth = trackWidth > 0 ? trackWidth / totalDays : 0;
 
   if (phases.length === 0) return null;
 
@@ -79,6 +62,8 @@ export function GanttTimeline({ phases }: { phases: Phase[] }) {
     ticks.push({ day: d, left: (d - min) * dayWidth });
   }
 
+  const todayDay = toDay(TODAY);
+  const todayInRange = todayDay >= min && todayDay <= max;
   const todayLeft = todayInRange ? (todayDay - min) * dayWidth : null;
 
   return (
@@ -96,9 +81,9 @@ export function GanttTimeline({ phases }: { phases: Phase[] }) {
         ))}
       </div>
 
-      {/* Scrollable day axis + bars — defaults to a 14-day window */}
-      <div ref={scrollRef} className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
-        <div className="relative" style={{ width: trackWidth }}>
+      {/* Day axis + bars — the whole range fits the frame, no scroll */}
+      <div ref={trackRef} className="min-w-0 flex-1">
+        <div className="relative">
           {/* Gridlines */}
           {ticks.map((t) => (
             <div

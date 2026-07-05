@@ -15,6 +15,13 @@
       "when": 1783134556493,
       "tag": "0001_dusty_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783290280419,
+      "tag": "0002_silly_gravity",
+      "breakpoints": true
     }
   ]
 }

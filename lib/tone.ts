@@ -1,4 +1,4 @@
-import type { Tone } from "@/lib/data";
+import type { OutreachStatus, Tone } from "@/lib/data";
 
 export const toneBg: Record<Tone, string> = {
   red: "tone-red",
@@ -18,6 +18,15 @@ export const toneInk: Record<Tone, string> = {
   purple: "tone-purple-ink",
   teal: "tone-teal-ink",
   slate: "tone-slate-ink",
+};
+
+/** Tone for each outreach pipeline status (drives its status pill). */
+export const outreachStatusTone: Record<OutreachStatus, Tone> = {
+  "Not started": "slate",
+  Sent: "blue",
+  "Awaiting reply": "amber",
+  Replied: "green",
+  Closed: "slate",
 };
 
 export function initials(name: string) {

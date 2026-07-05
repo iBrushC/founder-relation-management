@@ -9,14 +9,18 @@ import type { IconKey } from "@/lib/icons";
 import type {
   Connection,
   EventItem,
+  Outreach,
+  OutreachStatus,
   Project,
   Phase,
   Task,
   Update,
 } from "@/lib/data";
+import { OUTREACH_STATUSES } from "@/lib/data";
 import type {
   ConnectionRow,
   EventRow,
+  ProjectOutreachRow,
   ProjectRow,
   ProjectStageRow,
   ProjectTaskRow,
@@ -96,9 +100,34 @@ export function toPhase(row: ProjectStageRow): Phase {
   };
 }
 
+/** Coerce a stored status string to a known OutreachStatus (falls back safely). */
+function toOutreachStatus(raw: string): OutreachStatus {
+  return (OUTREACH_STATUSES as readonly string[]).includes(raw)
+    ? (raw as OutreachStatus)
+    : "Not started";
+}
+
+export function toOutreach(row: ProjectOutreachRow): Outreach {
+  return {
+    id: row.id,
+    label: row.label,
+    connectionId: row.connectionId ?? null,
+    channel: row.channel ?? "",
+    status: toOutreachStatus(row.status),
+    lastContacted: row.lastContacted ?? "",
+    followUpAt: row.followUpAt ?? "",
+    notes: row.notes ?? "",
+  };
+}
+
 export function toProject(
   row: ProjectRow,
-  extras: { tasks: Task[]; phases: Phase[]; connectionIds: string[] },
+  extras: {
+    tasks: Task[];
+    phases: Phase[];
+    connectionIds: string[];
+    outreach: Outreach[];
+  },
 ): Project {
   return {
     id: row.id,
@@ -111,6 +140,7 @@ export function toProject(
     connectionIds: extras.connectionIds,
     tasks: extras.tasks,
     phases: extras.phases,
+    outreach: extras.outreach,
   };
 }
 

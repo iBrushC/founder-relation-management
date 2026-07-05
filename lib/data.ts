@@ -94,6 +94,32 @@ export type Phase = {
   end: string;
 };
 
+/** Pipeline states an outreach campaign moves through, in order. */
+export const OUTREACH_STATUSES = [
+  "Not started",
+  "Sent",
+  "Awaiting reply",
+  "Replied",
+  "Closed",
+] as const;
+export type OutreachStatus = (typeof OUTREACH_STATUSES)[number];
+
+/** A campaign/message thread under a project, with a follow-up reminder. */
+export type Outreach = {
+  id: string;
+  label: string;
+  /** Optional recipient connection id. */
+  connectionId: string | null;
+  /** Free-text channel, e.g. "Email", "LinkedIn". */
+  channel: string;
+  status: OutreachStatus;
+  /** ISO date of last contact, or "" if never. */
+  lastContacted: string;
+  /** ISO date of the next follow-up reminder, or "" if none. */
+  followUpAt: string;
+  notes: string;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -105,6 +131,7 @@ export type Project = {
   connectionIds: string[];
   tasks: Task[];
   phases: Phase[];
+  outreach: Outreach[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -440,6 +467,28 @@ export const projects: Project[] = [
       { id: "lp3", label: "Eval dataset", tone: "purple", start: "2026-06-28", end: "2026-07-10" },
       { id: "lp4", label: "Alder fundraise", tone: "red", start: "2026-07-01", end: "2026-07-04" },
     ],
+    outreach: [
+      {
+        id: "lo1",
+        label: "Pre-seed investor round",
+        connectionId: "sam-whitfield",
+        channel: "Email",
+        status: "Awaiting reply",
+        lastContacted: "2026-07-03",
+        followUpAt: "2026-07-10",
+        notes: "Sent deck v2 + 3-line traction update. Nudge if no reply by Fri.",
+      },
+      {
+        id: "lo2",
+        label: "Fall pilot — campus leads",
+        connectionId: null,
+        channel: "Email",
+        status: "Sent",
+        lastContacted: "2026-06-30",
+        followUpAt: "2026-07-07",
+        notes: "Batch intro to 6 student org leads. Track who opens.",
+      },
+    ],
   },
   {
     id: "founders-fellowship",
@@ -460,6 +509,18 @@ export const projects: Project[] = [
       { id: "fp2", label: "One-pager revision", tone: "blue", start: "2026-06-30", end: "2026-07-06" },
       { id: "fp3", label: "Decision window", tone: "slate", start: "2026-07-06", end: "2026-07-31" },
     ],
+    outreach: [
+      {
+        id: "fo1",
+        label: "Reference request — Grace",
+        connectionId: "grace-liu",
+        channel: "Email",
+        status: "Replied",
+        lastContacted: "2026-06-28",
+        followUpAt: "",
+        notes: "Agreed to be a reference. Send her the form link.",
+      },
+    ],
   },
   {
     id: "northwind-pilot",
@@ -475,6 +536,18 @@ export const projects: Project[] = [
     phases: [
       { id: "np1", label: "Scoping", tone: "teal", start: "2026-06-16", end: "2026-06-19" },
       { id: "np2", label: "On hold", tone: "slate", start: "2026-06-19", end: "2026-07-31" },
+    ],
+    outreach: [
+      {
+        id: "no1",
+        label: "Keep Priya warm",
+        connectionId: "priya-raman",
+        channel: "Email",
+        status: "Not started",
+        lastContacted: "",
+        followUpAt: "2026-07-12",
+        notes: "Quarterly check-in so the thread stays alive while paused.",
+      },
     ],
   },
 ];

@@ -6,6 +6,7 @@ import {
   connections,
   eventParticipants,
   events,
+  projectOutreach,
   projectParticipants,
   projectStages,
   projectTasks,
@@ -16,6 +17,7 @@ import { withUserRLS } from "@/lib/db/rls";
 import {
   toConnection,
   toEvent,
+  toOutreach,
   toPhase,
   toProject,
   toTask,
@@ -68,11 +70,13 @@ async function assembleProjects(
       : tx.select().from(projects).orderBy(asc(projects.createdAt)));
     if (projectRows.length === 0) return [];
 
-    const [taskRows, stageRows, participantRows] = await Promise.all([
-      tx.select().from(projectTasks).orderBy(asc(projectTasks.position)),
-      tx.select().from(projectStages).orderBy(asc(projectStages.position)),
-      tx.select().from(projectParticipants),
-    ]);
+    const [taskRows, stageRows, participantRows, outreachRows] =
+      await Promise.all([
+        tx.select().from(projectTasks).orderBy(asc(projectTasks.position)),
+        tx.select().from(projectStages).orderBy(asc(projectStages.position)),
+        tx.select().from(projectParticipants),
+        tx.select().from(projectOutreach).orderBy(asc(projectOutreach.position)),
+      ]);
 
     const tasksByProject = groupBy(taskRows, (t) => t.projectId, toTask);
     const stagesByProject = groupBy(stageRows, (s) => s.projectId, toPhase);
@@ -81,12 +85,18 @@ async function assembleProjects(
       (p) => p.projectId,
       (p) => p.connectionId,
     );
+    const outreachByProject = groupBy(
+      outreachRows,
+      (o) => o.projectId,
+      toOutreach,
+    );
 
     return projectRows.map((row) =>
       toProject(row, {
         tasks: tasksByProject.get(row.id) ?? [],
         phases: stagesByProject.get(row.id) ?? [],
         connectionIds: peopleByProject.get(row.id) ?? [],
+        outreach: outreachByProject.get(row.id) ?? [],
       }),
     );
   });

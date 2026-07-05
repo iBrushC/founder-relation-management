@@ -9,6 +9,7 @@ import {
   eventParticipants,
   events,
   profiles,
+  projectOutreach,
   projectParticipants,
   projectStages,
   projectTasks,
@@ -20,6 +21,7 @@ import {
   type Tag,
   type Tone,
 } from "@/drizzle/schema";
+import type { OutreachStatus } from "@/lib/data";
 import {
   me,
   connections as demoConnections,
@@ -176,6 +178,20 @@ export async function seedSampleData(): Promise<{ ok: true }> {
             connectionId,
           });
         }
+      }
+      for (const [i, o] of p.outreach.entries()) {
+        await tx.insert(projectOutreach).values({
+          ownerId: user.userId,
+          projectId: row.id,
+          connectionId: o.connectionId ? idBySlug.get(o.connectionId) ?? null : null,
+          label: o.label,
+          channel: o.channel || null,
+          status: o.status,
+          lastContacted: o.lastContacted || null,
+          followUpAt: o.followUpAt || null,
+          notes: o.notes || null,
+          position: i,
+        });
       }
     }
 
@@ -713,4 +729,130 @@ export async function createStage(
   });
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Project outreach (campaigns + follow-up reminders)                 */
+/* ------------------------------------------------------------------ */
+
+/** ISO date `days` from today, e.g. the default one-week follow-up reminder. */
+function plusDaysIso(days: number): string {
+  const now = new Date();
+  return isoOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() + days));
+}
+
+/** Append an outreach campaign to a project. Defaults the follow-up to +1 week. */
+export async function createOutreach(
+  projectId: string,
+  input: {
+    label: string;
+    channel?: string;
+    status?: OutreachStatus;
+    connectionId?: string | null;
+    lastContacted?: string | null;
+    followUpAt?: string | null;
+    notes?: string;
+  },
+): Promise<void> {
+  const user = await verifySession();
+  const label = input.label.trim();
+  if (!label) return;
+
+  await withUserRLS(async (tx) => {
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(projectOutreach)
+      .where(eq(projectOutreach.projectId, projectId));
+    await tx.insert(projectOutreach).values({
+      ownerId: user.userId,
+      projectId,
+      connectionId: input.connectionId || null,
+      label,
+      channel: orNull(input.channel),
+      status: input.status ?? "Not started",
+      lastContacted: input.lastContacted || null,
+      // `undefined` → default a week out; an empty string → no reminder.
+      followUpAt:
+        input.followUpAt === undefined ? plusDaysIso(7) : input.followUpAt || null,
+      notes: orNull(input.notes),
+      position: count,
+    });
+  });
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+/** Edit an outreach campaign's fields. Only provided keys are changed. */
+export async function updateOutreach(
+  id: string,
+  patch: {
+    label?: string;
+    channel?: string;
+    status?: OutreachStatus;
+    connectionId?: string | null;
+    lastContacted?: string | null;
+    followUpAt?: string | null;
+    notes?: string;
+  },
+  projectId?: string,
+): Promise<void> {
+  const set: Partial<{
+    label: string;
+    channel: string | null;
+    status: OutreachStatus;
+    connectionId: string | null;
+    lastContacted: string | null;
+    followUpAt: string | null;
+    notes: string | null;
+  }> = {};
+  if (patch.label !== undefined) {
+    const label = patch.label.trim();
+    if (!label) return;
+    set.label = label;
+  }
+  if (patch.channel !== undefined) set.channel = orNull(patch.channel);
+  if (patch.status !== undefined) set.status = patch.status;
+  if (patch.connectionId !== undefined) set.connectionId = patch.connectionId || null;
+  if (patch.lastContacted !== undefined) set.lastContacted = patch.lastContacted || null;
+  if (patch.followUpAt !== undefined) set.followUpAt = patch.followUpAt || null;
+  if (patch.notes !== undefined) set.notes = orNull(patch.notes);
+  if (Object.keys(set).length === 0) return;
+
+  await withUserRLS((tx) =>
+    tx.update(projectOutreach).set(set).where(eq(projectOutreach.id, id)),
+  );
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+export async function removeOutreach(
+  id: string,
+  projectId?: string,
+): Promise<void> {
+  await withUserRLS((tx) =>
+    tx.delete(projectOutreach).where(eq(projectOutreach.id, id)),
+  );
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Danger zone — wipe all CRM data (keeps the account + profile)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Delete everything the user owns except their account: connections, projects
+ * (tasks/stages/participants/outreach cascade), and events (participants
+ * cascade). The `profiles` row and auth user are left intact, so the user stays
+ * signed in with an empty workspace.
+ */
+export async function deleteAllData(): Promise<{ ok: true }> {
+  await verifySession();
+  await withUserRLS(async (tx) => {
+    await tx.delete(events);
+    await tx.delete(projects);
+    await tx.delete(connections);
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

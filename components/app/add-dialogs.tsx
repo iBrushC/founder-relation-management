@@ -238,6 +238,7 @@ export function AddProjectDialog() {
       connectionIds: [],
       tasks: [],
       phases: [],
+      outreach: [],
     };
     list.add(optimistic, () => createProject(input));
     setForm({ name: "", summary: "" });

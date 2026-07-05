@@ -304,6 +304,48 @@ export const projectParticipants = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/*  project_outreach — campaigns/messages with follow-up reminders     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * An outreach campaign under a project — e.g. a fundraising thread or a batch of
+ * intro messages. `followUpAt` is a reminder date (the UI defaults it to a week
+ * out); pending follow-ups surface in the homepage `updates` feed. Optionally
+ * tied to the connection being contacted.
+ */
+export const projectOutreach = pgTable(
+  "project_outreach",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    ownerId: ownerId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id").references(() => connections.id, {
+      onDelete: "set null",
+    }),
+    label: text().notNull(),
+    /** Free-text channel, e.g. "email", "linkedin", "phone". */
+    channel: text(),
+    /** Pipeline status: Not started / Sent / Awaiting reply / Replied / Closed. */
+    status: text().notNull().default("Not started"),
+    lastContacted: date("last_contacted"),
+    /** Reminder date to send the next follow-up. */
+    followUpAt: date("follow_up_at"),
+    notes: text(),
+    position: integer().notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("project_outreach_owner_id_idx").on(t.ownerId),
+    index("project_outreach_project_id_idx").on(t.projectId),
+    index("project_outreach_connection_id_idx").on(t.connectionId),
+    index("project_outreach_follow_up_at_idx").on(t.followUpAt),
+    ...ownerRls(t.ownerId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /*  events                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -377,6 +419,8 @@ export type ProjectTaskRow = typeof projectTasks.$inferSelect;
 export type NewProjectTaskRow = typeof projectTasks.$inferInsert;
 export type ProjectStageRow = typeof projectStages.$inferSelect;
 export type NewProjectStageRow = typeof projectStages.$inferInsert;
+export type ProjectOutreachRow = typeof projectOutreach.$inferSelect;
+export type NewProjectOutreachRow = typeof projectOutreach.$inferInsert;
 export type ProjectParticipantRow = typeof projectParticipants.$inferSelect;
 export type NewProjectParticipantRow = typeof projectParticipants.$inferInsert;
 export type EventRow = typeof events.$inferSelect;

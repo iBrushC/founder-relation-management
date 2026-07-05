@@ -19,6 +19,8 @@ import { useRouter } from "next/navigation";
 import { PageBody, Section } from "@/components/app/layout-bits";
 import { TaskList } from "@/components/app/task-list";
 import { GanttTimeline } from "@/components/app/gantt-timeline";
+import { OutreachTable } from "@/components/app/outreach-table";
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
 import { EditRow, IconPicker, TonePicker } from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
@@ -79,6 +81,7 @@ export function ProjectDetail({
   const [form, setForm] = useState<Form>(() => toForm(project));
   const [addingStage, setAddingStage] = useState(false);
   const [addingPerson, setAddingPerson] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [, startTransition] = useTransition();
 
   const setInput =
@@ -264,7 +267,7 @@ export function ProjectDetail({
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       className="tone-red-ink focus:bg-destructive/10"
-                      onSelect={remove}
+                      onSelect={() => setConfirmDelete(true)}
                     >
                       <Icons.x className="size-4" /> Delete project
                     </DropdownMenuItem>
@@ -410,7 +413,7 @@ export function ProjectDetail({
               size="sm"
               onClick={() => setAddingStage((v) => !v)}
             >
-              <Icons.plus className="size-3.5" /> Add to Gantt
+              <Icons.plus className="size-3.5" /> New Stage
             </Button>
           }
         >
@@ -428,12 +431,35 @@ export function ProjectDetail({
             </p>
           ) : null}
         </Section>
+
+        <Section title="Outreach">
+          <OutreachTable
+            projectId={current.id}
+            outreach={current.outreach}
+            people={people}
+          />
+        </Section>
       </PageBody>
 
       <AddPersonDialog
         open={addingPerson}
         onOpenChange={setAddingPerson}
         onAdd={addNewPerson}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete project"
+        description={
+          <>
+            Permanently delete{" "}
+            <span className="font-medium text-foreground">{current.name}</span> and
+            {" "}all of its tasks, stages, and outreach. This can&apos;t be undone.
+          </>
+        }
+        confirmLabel="Delete project"
+        onConfirm={remove}
       />
     </>
   );

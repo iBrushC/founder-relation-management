@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { removeProject } from "@/lib/data/actions";
 import { ProjectRow } from "@/components/app/rows";
 import { ProjectsList } from "@/components/app/list-contexts";
 import { popProps } from "@/components/app/reactive-list";
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,6 +23,10 @@ import {
  */
 export function ProjectsBoard() {
   const list = ProjectsList.useList();
+  // The project pending a delete-confirmation (null = dialog closed).
+  const [pending, setPending] = useState<{ id: string; name: string } | null>(
+    null,
+  );
   return (
     <div className="flex flex-col gap-2">
       {list.items.map((p) => {
@@ -51,9 +57,7 @@ export function ProjectsBoard() {
                 >
                   <DropdownMenuItem
                     className="tone-red-ink focus:bg-destructive/10"
-                    onSelect={() =>
-                      list.remove(p.id, () => removeProject(p.id))
-                    }
+                    onSelect={() => setPending({ id: p.id, name: p.name })}
                   >
                     <Icons.x className="size-4" /> Remove
                   </DropdownMenuItem>
@@ -63,6 +67,25 @@ export function ProjectsBoard() {
           </div>
         );
       })}
+
+      <ConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+        title="Delete project"
+        description={
+          <>
+            Permanently delete{" "}
+            <span className="font-medium text-foreground">{pending?.name}</span> and
+            {" "}all of its tasks, stages, and outreach. This can&apos;t be undone.
+          </>
+        }
+        confirmLabel="Delete project"
+        onConfirm={() => {
+          if (pending) list.remove(pending.id, () => removeProject(pending.id));
+        }}
+      />
     </div>
   );
 }

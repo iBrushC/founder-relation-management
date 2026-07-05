@@ -7,13 +7,17 @@ import type { Profile } from "@/lib/data/profiles";
  * type-only, so none of the server-only DAL code is pulled into the client.
  */
 
+/** An uploaded resume: its storage path in the `resumes` bucket + display name. */
+export type ResumeRef = { path: string; name: string };
+
 /** Extended profile fields kept in `Profile.settings.profile`. */
 export type ProfileExtras = {
   bio?: string;
   school?: string;
   country?: string;
   timezone?: string;
-  resume?: string | null;
+  /** Uploaded resume reference, or null when none. */
+  resume?: ResumeRef | null;
 };
 
 /** Read the extended fields off a Profile's settings blob, typed. */
