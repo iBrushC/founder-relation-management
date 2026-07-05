@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const nav = [
-  { href: "/", label: "Home", icon: Icons.home },
+  { href: "/dashboard", label: "Home", icon: Icons.home },
   { href: "/connections", label: "Connections", icon: Icons.users },
   { href: "/projects", label: "Projects", icon: Icons.folder },
   { href: "/events", label: "Events", icon: Icons.calendar },

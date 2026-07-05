@@ -6,8 +6,10 @@ import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Icons, type IconKey } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
-import type { Connection, Project, Tone } from "@/lib/data";
+import type { Connection, Phase, Project, Tone } from "@/lib/data";
 import {
+  createLinkedConnection,
+  createStage,
   linkParticipant,
   removeProject,
   unlinkParticipant,
@@ -22,12 +24,22 @@ import { EditRow, IconPicker, TonePicker } from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Form = {
   name: string;
@@ -65,6 +77,8 @@ export function ProjectDetail({
   const [people, setPeople] = useState<Connection[]>(initialPeople);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Form>(() => toForm(project));
+  const [addingStage, setAddingStage] = useState(false);
+  const [addingPerson, setAddingPerson] = useState(false);
   const [, startTransition] = useTransition();
 
   const setInput =
@@ -122,6 +136,52 @@ export function ProjectDetail({
   const unlink = (id: string) => {
     setPeople((prev) => prev.filter((p) => p.id !== id));
     startTransition(() => unlinkParticipant(current.id, id));
+  };
+
+  /** Create a brand-new connection and link it to this project in one step. */
+  const addNewPerson = (input: {
+    name: string;
+    role: string;
+    company: string;
+    email: string;
+  }) => {
+    const name = input.name.trim();
+    if (!name) return;
+    startTransition(async () => {
+      const created = await createLinkedConnection(current.id, input);
+      if (created) setPeople((prev) => [...prev, created]);
+    });
+    setAddingPerson(false);
+  };
+
+  /** Append a stage to the Gantt timeline (optimistic; persisted in the background). */
+  const addStage = (input: {
+    label: string;
+    start: string;
+    end: string;
+    tone: Tone;
+  }) => {
+    const label = input.label.trim();
+    if (!label || !input.start || !input.end) return;
+    const [start, end] =
+      input.start <= input.end ? [input.start, input.end] : [input.end, input.start];
+    const optimistic: Phase = {
+      id: crypto.randomUUID(),
+      label,
+      tone: input.tone,
+      start,
+      end,
+    };
+    setCurrent((p) => ({ ...p, phases: [...p.phases, optimistic] }));
+    startTransition(() =>
+      createStage(current.id, {
+        label,
+        startDate: start,
+        endDate: end,
+        tone: input.tone,
+      }),
+    );
+    setAddingStage(false);
   };
 
   return (
@@ -268,27 +328,39 @@ export function ProjectDetail({
         <Section
           title="Connections"
           action={
-            candidates.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <Icons.plus className="size-3.5" /> Link person
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                  {candidates.map((c) => (
-                    <DropdownMenuItem key={c.id} onSelect={() => link(c)}>
-                      <InitialsAvatar
-                        name={c.name}
-                        tone={c.avatarTone}
-                        className="size-5 text-[9px]"
-                      />
-                      {c.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setAddingPerson(true)}
+              >
+                <Icons.plus className="size-3.5" /> Add new
+              </Button>
+              {candidates.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <Icons.link className="size-3.5" /> Link existing
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="max-h-72 overflow-y-auto"
+                  >
+                    {candidates.map((c) => (
+                      <DropdownMenuItem key={c.id} onSelect={() => link(c)}>
+                        <InitialsAvatar
+                          name={c.name}
+                          tone={c.avatarTone}
+                          className="size-5 text-[9px]"
+                        />
+                        {c.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
           }
         >
           {people.length > 0 ? (
@@ -330,12 +402,183 @@ export function ProjectDetail({
           <TaskList tasks={current.tasks} projectId={current.id} />
         </Section>
 
-        {current.phases.length > 0 ? (
-          <Section title="Timeline">
+        <Section
+          title="Timeline"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAddingStage((v) => !v)}
+            >
+              <Icons.plus className="size-3.5" /> Add to Gantt
+            </Button>
+          }
+        >
+          {addingStage ? (
+            <StageForm
+              onAdd={addStage}
+              onCancel={() => setAddingStage(false)}
+            />
+          ) : null}
+          {current.phases.length > 0 ? (
             <GanttTimeline phases={current.phases} />
-          </Section>
-        ) : null}
+          ) : !addingStage ? (
+            <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              No stages yet. Add one to build the Gantt chart.
+            </p>
+          ) : null}
+        </Section>
       </PageBody>
+
+      <AddPersonDialog
+        open={addingPerson}
+        onOpenChange={setAddingPerson}
+        onAdd={addNewPerson}
+      />
     </>
+  );
+}
+
+/** Inline form for adding a stage to the Gantt timeline. */
+function StageForm({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (input: { label: string; start: string; end: string; tone: Tone }) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [tone, setTone] = useState<Tone>("green");
+  const valid = label.trim() && start && end;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-md border border-border bg-card p-4">
+      <EditRow label="Stage name" htmlFor="stage-label">
+        <Input
+          id="stage-label"
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Beta launch"
+          className="h-8"
+        />
+      </EditRow>
+      <div className="grid grid-cols-2 gap-4">
+        <EditRow label="Start" htmlFor="stage-start">
+          <Input
+            id="stage-start"
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="h-8"
+          />
+        </EditRow>
+        <EditRow label="End" htmlFor="stage-end">
+          <Input
+            id="stage-end"
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="h-8"
+          />
+        </EditRow>
+      </div>
+      <EditRow label="Color">
+        <TonePicker value={tone} onChange={setTone} />
+      </EditRow>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          disabled={!valid}
+          onClick={() => onAdd({ label, start, end, tone })}
+        >
+          <Icons.plus className="size-4" /> Add stage
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Dialog for creating a new connection that's auto-linked to the project. */
+function AddPersonDialog({
+  open,
+  onOpenChange,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAdd: (input: {
+    name: string;
+    role: string;
+    company: string;
+    email: string;
+  }) => void;
+}) {
+  const [form, setForm] = useState({ name: "", role: "", company: "", email: "" });
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  function submit() {
+    onAdd({
+      name: form.name.trim(),
+      role: form.role.trim(),
+      company: form.company.trim(),
+      email: form.email.trim(),
+    });
+    setForm({ name: "", role: "", company: "", email: "" });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add connection</DialogTitle>
+          <DialogDescription>
+            Creates a new connection and links it to this project.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="np-name" className="text-xs text-muted-foreground">
+              Name
+            </Label>
+            <Input id="np-name" autoFocus value={form.name} onChange={set("name")} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="np-role" className="text-xs text-muted-foreground">
+                Role
+              </Label>
+              <Input id="np-role" value={form.role} onChange={set("role")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="np-company" className="text-xs text-muted-foreground">
+                Company
+              </Label>
+              <Input id="np-company" value={form.company} onChange={set("company")} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="np-email" className="text-xs text-muted-foreground">
+              Email
+            </Label>
+            <Input id="np-email" type="email" value={form.email} onChange={set("email")} />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost">Cancel</Button>
+          </DialogClose>
+          <Button disabled={!form.name.trim()} onClick={submit}>
+            <Icons.plus className="size-4" /> Add & link
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -51,7 +51,7 @@ export async function login(
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error) return { error: "Invalid email or password." };
 
-  redirect("/");
+  redirect("/dashboard");
 }
 
 export async function signup(
@@ -74,7 +74,7 @@ export async function signup(
   });
   if (error) return { error: error.message };
 
-  redirect("/");
+  redirect("/dashboard");
 }
 
 export async function logout(): Promise<void> {

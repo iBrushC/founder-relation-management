@@ -1,8 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/** Routes reachable while signed out. Everything else requires a session. */
-const PUBLIC_ROUTES = ["/login", "/signup"];
+/**
+ * Auth pages: reachable while signed out, and bounced to the app when signed in.
+ * The marketing landing at "/" is public to everyone (handled separately below),
+ * so it's not listed here — otherwise a signed-in visitor would loop redirecting
+ * "/" → "/". Everything else requires a session.
+ */
+const AUTH_ROUTES = ["/login", "/signup"];
 
 /**
  * Security architecture, layer 1 of 3: the proxy.
@@ -52,7 +57,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_ROUTES.some((r) => path.startsWith(r));
+  const isAuthPage = AUTH_ROUTES.some((r) => path.startsWith(r));
+  const isPublic = path === "/" || isAuthPage;
 
   // Signed out and trying to reach a protected route → send to login.
   if (!user && !isPublic) {
@@ -61,10 +67,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Signed in but on an auth page → send home.
-  if (user && isPublic) {
+  // Signed in but on an auth page → send to the app dashboard.
+  if (user && isAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

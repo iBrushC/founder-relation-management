@@ -128,6 +128,17 @@
   }
 }
 
+@layer utilities {
+  /* Hide the native scrollbar while keeping the element scrollable. */
+  .no-scrollbar {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+}
+
 @layer components {
   /* Semantic tone chips — set colors only; layout comes from the Tag/Status component */
   .tone-red    { background: var(--t-red-bg);    color: var(--t-red-fg); }
@@ -204,10 +215,95 @@
   }
 }
 
+/* Inline connection detail — slides in from the right as it takes the stage. */
+.sfrm-slide-in {
+  animation: sfrm-slide-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes sfrm-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sfrm-slide-in {
+    animation-duration: 0.01ms;
+  }
+}
+
 /* Honor reduced-motion: collapse the pop to a near-instant, still-committing tick. */
 @media (prefers-reduced-motion: reduce) {
   .sfrm-pop-in,
   .sfrm-pop-out {
     animation-duration: 0.01ms;
+  }
+}
+
+/*
+  Landing surface — a basic fade-in-on-load for hero/demo sections, and the
+  dynamic tile background's per-tile pulse. Both stay subtle and honor
+  reduced-motion below.
+*/
+@keyframes landing-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.landing-fade {
+  opacity: 0;
+  animation: landing-fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+  Subtle, irregular flicker: tiles mostly hold at their peak and dip briefly
+  at a couple of random-feeling points per cycle. The per-tile duration
+  (set inline) keeps every cycle at 2s or slower.
+*/
+@keyframes sfrm-tile-flicker {
+  0% {
+    opacity: var(--tile-peak, 0.12);
+  }
+  9% {
+    opacity: calc(var(--tile-peak, 0.12) * 0.2);
+  }
+  15% {
+    opacity: var(--tile-peak, 0.12);
+  }
+  48% {
+    opacity: var(--tile-peak, 0.12);
+  }
+  53% {
+    opacity: calc(var(--tile-peak, 0.12) * 0.45);
+  }
+  59% {
+    opacity: var(--tile-peak, 0.12);
+  }
+  100% {
+    opacity: var(--tile-peak, 0.12);
+  }
+}
+.sfrm-tile {
+  opacity: var(--tile-peak, 0.12);
+  animation-name: sfrm-tile-flicker;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-fade {
+    animation-duration: 0.01ms;
+  }
+  .sfrm-tile {
+    animation: none;
+    opacity: var(--tile-peak, 0.1);
   }
 }

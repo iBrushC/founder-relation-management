@@ -3,10 +3,14 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import type { Connection } from "@/lib/data";
+import type { Connection, Tag as TagType } from "@/lib/data";
 import { removeConnection } from "@/lib/data/actions";
 import { toneInk } from "@/lib/tone";
-import { popProps, staticList } from "@/components/app/reactive-list";
+import {
+  popProps,
+  staticList,
+  type ReactiveList,
+} from "@/components/app/reactive-list";
 import { ConnectionsList } from "@/components/app/list-contexts";
 import { Tag, InitialsAvatar } from "@/components/app/primitives";
 import {
@@ -37,20 +41,31 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ConnectionPanel } from "@/components/app/connection-panel";
+import {
+  ConnectionPanel,
+  ConnectionDetailInline,
+  type ProjectLink,
+} from "@/components/app/connection-panel";
 
 export function ConnectionsView({
   connections,
+  connectionProjects = {},
   showControls = false,
 }: {
   /** Static rows for surfaces without a list provider (e.g. a project's people). */
   connections?: Connection[];
+  /** Projects each connection is linked to, keyed by connection id. */
+  connectionProjects?: Record<string, ProjectLink[]>;
   showControls?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [intent, setIntent] = useState<"view" | "edit" | "log">("view");
+
+  // The full Connections page shows the detail inline (in-page); other surfaces
+  // (e.g. the dashboard section) keep the overlay sheet.
+  const inlineDetail = showControls;
 
   const openPanel = (id: string, next: "view" | "edit" | "log") => {
     setIntent(next);
@@ -67,6 +82,17 @@ export function ConnectionsView({
     return Array.from(set).sort();
   }, [rows]);
 
+  // Distinct tags across everyone, offered as one-click picks in the editor.
+  const tagSuggestions = useMemo(() => {
+    const byLabel = new Map<string, TagType>();
+    rows.forEach((c) =>
+      c.tags.forEach((t) => {
+        if (!byLabel.has(t.label.toLowerCase())) byLabel.set(t.label.toLowerCase(), t);
+      }),
+    );
+    return Array.from(byLabel.values());
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((c) => {
@@ -79,6 +105,7 @@ export function ConnectionsView({
   }, [rows, query, tag]);
 
   const selected = rows.find((c) => c.id === selectedId) ?? null;
+  const collapsed = inlineDetail && selected !== null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -94,7 +121,7 @@ export function ConnectionsView({
             />
           </div>
           <Select value={tag} onValueChange={setTag}>
-            <SelectTrigger className="h-9 w-40">
+            <SelectTrigger className="h-9 w-40 data-[size=default]:h-9">
               <Icons.filter className="size-4 text-muted-foreground" />
               <SelectValue placeholder="All tags" />
             </SelectTrigger>
@@ -113,32 +140,90 @@ export function ConnectionsView({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-md border border-border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="h-9 pl-4 font-heading text-[11px] tracking-wider uppercase">
-                Name
-              </TableHead>
-              <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
-                Role
-              </TableHead>
-              <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
-                Tags
-              </TableHead>
-              <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
-                Last
-              </TableHead>
-              <TableHead className="h-9 w-28" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((c) => {
-              const pop = popProps(list, c.id);
-              return (
+      <div className="flex items-start gap-4">
+        <div className={cn("min-w-0", collapsed ? "w-64 shrink-0" : "flex-1")}>
+          {collapsed ? (
+            <CompactList
+              rows={filtered}
+              list={list}
+              selectedId={selectedId}
+              onSelect={(id) => openPanel(id, "view")}
+            />
+          ) : (
+            <FullTable
+              rows={filtered}
+              list={list}
+              onOpen={openPanel}
+            />
+          )}
+        </div>
+
+        {collapsed && selected ? (
+          <div className="sticky top-3 min-w-0 flex-1 self-start">
+            <ConnectionDetailInline
+              connection={selected}
+              projects={connectionProjects[selected.id] ?? []}
+              tagSuggestions={tagSuggestions}
+              initialEditing={intent === "edit"}
+              initialLogOpen={intent === "log"}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {!inlineDetail ? (
+        <ConnectionPanel
+          connection={selected}
+          projects={selected ? connectionProjects[selected.id] ?? [] : []}
+          tagSuggestions={tagSuggestions}
+          open={selected !== null}
+          onOpenChange={(o) => !o && setSelectedId(null)}
+          initialEditing={intent === "edit"}
+          initialLogOpen={intent === "log"}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** The full connections table — name, role, tags, last contact, and row actions. */
+function FullTable({
+  rows,
+  list,
+  onOpen,
+}: {
+  rows: Connection[];
+  list: ReactiveList<Connection>;
+  onOpen: (id: string, intent: "view" | "edit" | "log") => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-9 pl-4 font-heading text-[11px] tracking-wider uppercase">
+              Name
+            </TableHead>
+            <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
+              Role
+            </TableHead>
+            <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
+              Tags
+            </TableHead>
+            <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
+              Last
+            </TableHead>
+            <TableHead className="h-9 w-28" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((c) => {
+            const pop = popProps(list, c.id);
+            return (
               <TableRow
                 key={c.id}
-                onClick={pop.exiting ? undefined : () => openPanel(c.id, "view")}
+                onClick={pop.exiting ? undefined : () => onOpen(c.id, "view")}
                 onAnimationEnd={pop.onAnimationEnd}
                 className={cn("cursor-pointer", pop.className)}
               >
@@ -163,37 +248,76 @@ export function ConnectionsView({
                 </TableCell>
                 <TableCell className="pr-2">
                   <RowActions
-                    onEdit={() => openPanel(c.id, "edit")}
-                    onLog={() => openPanel(c.id, "log")}
+                    onEdit={() => onOpen(c.id, "edit")}
+                    onLog={() => onOpen(c.id, "log")}
                     onRemove={() =>
                       list.remove(c.id, () => removeConnection(c.id))
                     }
                   />
                 </TableCell>
               </TableRow>
-              );
-            })}
-            {filtered.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={5}
-                  className="py-10 text-center text-sm text-muted-foreground"
-                >
-                  No connections match your search.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </div>
+            );
+          })}
+          {rows.length === 0 ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell
+                colSpan={5}
+                className="py-10 text-center text-sm text-muted-foreground"
+              >
+                No connections match your search.
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
-      <ConnectionPanel
-        connection={selected}
-        open={selected !== null}
-        onOpenChange={(o) => !o && setSelectedId(null)}
-        initialEditing={intent === "edit"}
-        initialLogOpen={intent === "log"}
-      />
+/** The narrowed list shown beside the inline detail — avatar + name only. */
+function CompactList({
+  rows,
+  list,
+  selectedId,
+  onSelect,
+}: {
+  rows: Connection[];
+  list: ReactiveList<Connection>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-card">
+      <ul className="flex flex-col">
+        {rows.map((c) => {
+          const pop = popProps(list, c.id);
+          const active = c.id === selectedId;
+          return (
+            <li
+              key={c.id}
+              onAnimationEnd={pop.onAnimationEnd}
+              className={cn("border-b border-border last:border-b-0", pop.className)}
+            >
+              <button
+                type="button"
+                onClick={pop.exiting ? undefined : () => onSelect(c.id)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors",
+                  active ? "bg-accent" : "hover:bg-muted/60",
+                )}
+              >
+                <InitialsAvatar name={c.name} tone={c.avatarTone} />
+                <span className="truncate text-sm font-medium">{c.name}</span>
+              </button>
+            </li>
+          );
+        })}
+        {rows.length === 0 ? (
+          <li className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No matches.
+          </li>
+        ) : null}
+      </ul>
     </div>
   );
 }

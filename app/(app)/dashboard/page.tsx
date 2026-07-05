@@ -7,9 +7,10 @@ import { UpdatesView } from "@/components/app/updates-view";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { AddConnectionDialog } from "@/components/app/add-dialogs";
 import { ConnectionsProvider } from "@/components/app/list-contexts";
+import { projectLinksByConnection } from "@/lib/data/project-links";
 import { Button } from "@/components/ui/button";
 
-export default async function HomePage() {
+export default async function DashboardPage() {
   const [updates, connections, projects] = await Promise.all([
     listUpdates(),
     listConnections(),
@@ -18,6 +19,7 @@ export default async function HomePage() {
 
   const connectionsById = Object.fromEntries(connections.map((c) => [c.id, c]));
   const projectsById = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const connectionProjects = projectLinksByConnection(projects);
   const openTasks = projects.reduce(
     (n, p) => n + p.tasks.filter((t) => !t.done).length,
     0,
@@ -48,14 +50,17 @@ export default async function HomePage() {
         <Section
           title="Connections"
           action={
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/connections">
-                See all <Icons.arrowUpRight className="size-3.5" />
-              </Link>
-            </Button>
+            <div className="flex items-center gap-1">
+              <AddConnectionDialog size="sm" variant="ghost" label="Add connection" />
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/connections">
+                  See all <Icons.arrowUpRight className="size-3.5" />
+                </Link>
+              </Button>
+            </div>
           }
         >
-          <ConnectionsView />
+          <ConnectionsView connectionProjects={connectionProjects} />
         </Section>
 
         <Section

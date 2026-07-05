@@ -25,10 +25,12 @@ import {
   connections as demoConnections,
   events as demoEvents,
   projects as demoProjects,
+  type Connection,
 } from "@/lib/data";
 import { verifySession } from "@/lib/data/session";
 import { withUserRLS } from "@/lib/db/rls";
 import { monthDayToIso } from "./format";
+import { toConnection } from "./mappers";
 
 /**
  * Write side of the CRM data layer: the "Load sample data" seeder plus the
@@ -633,6 +635,82 @@ export async function unlinkParticipant(
         ),
       ),
   );
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+}
+
+/**
+ * Create a brand-new connection and link it to a project in one step, so people
+ * met through a project can be added without leaving it. Returns the created
+ * connection (mapped to the UI shape) so the caller can show it immediately.
+ */
+export async function createLinkedConnection(
+  projectId: string,
+  input: { name: string; role?: string; company?: string; email?: string },
+): Promise<Connection | null> {
+  const user = await verifySession();
+  const name = input.name.trim();
+  if (!name) return null;
+
+  let created: Connection | null = null;
+  await withUserRLS(async (tx) => {
+    await ensureProfile(tx, user);
+    const [row] = await tx
+      .insert(connections)
+      .values({
+        ownerId: user.userId,
+        name,
+        role: input.role?.trim() || null,
+        company: input.company?.trim() || null,
+        email: input.email?.trim() || null,
+      })
+      .returning();
+    await tx
+      .insert(projectParticipants)
+      .values({ ownerId: user.userId, projectId, connectionId: row.id })
+      .onConflictDoNothing();
+    created = toConnection(row, 0);
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/connections");
+  revalidatePath("/");
+  return created;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Project stages (Gantt bars)                                         */
+/* ------------------------------------------------------------------ */
+
+/** Append a stage to a project's Gantt timeline. */
+export async function createStage(
+  projectId: string,
+  input: { label: string; startDate: string; endDate: string; tone?: Tone },
+): Promise<void> {
+  const user = await verifySession();
+  const label = input.label.trim();
+  if (!label || !input.startDate || !input.endDate) return;
+  // Guard against inverted ranges — keep start ≤ end.
+  const [startDate, endDate] =
+    input.startDate <= input.endDate
+      ? [input.startDate, input.endDate]
+      : [input.endDate, input.startDate];
+
+  await withUserRLS(async (tx) => {
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(projectStages)
+      .where(eq(projectStages.projectId, projectId));
+    await tx.insert(projectStages).values({
+      ownerId: user.userId,
+      projectId,
+      label,
+      tone: input.tone ?? "slate",
+      startDate,
+      endDate,
+      position: count,
+    });
+  });
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
 }

@@ -1,11 +1,16 @@
-import { listConnections } from "@/lib/data/crm";
+import { listConnections, listProjects } from "@/lib/data/crm";
 import { PageHeader, PageBody } from "@/components/app/layout-bits";
 import { ConnectionsView } from "@/components/app/connections-view";
 import { AddConnectionDialog } from "@/components/app/add-dialogs";
 import { ConnectionsProvider } from "@/components/app/list-contexts";
+import { projectLinksByConnection } from "@/lib/data/project-links";
 
 export default async function ConnectionsPage() {
-  const connections = await listConnections();
+  const [connections, projects] = await Promise.all([
+    listConnections(),
+    listProjects(),
+  ]);
+  const connectionProjects = projectLinksByConnection(projects);
 
   return (
     <ConnectionsProvider server={connections}>
@@ -15,7 +20,7 @@ export default async function ConnectionsPage() {
         actions={<AddConnectionDialog />}
       />
       <PageBody>
-        <ConnectionsView showControls />
+        <ConnectionsView showControls connectionProjects={connectionProjects} />
       </PageBody>
     </ConnectionsProvider>
   );

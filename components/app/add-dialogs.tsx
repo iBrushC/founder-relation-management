@@ -60,7 +60,16 @@ function Field({
   );
 }
 
-export function AddConnectionDialog() {
+export function AddConnectionDialog({
+  size = "default",
+  variant = "default",
+  label = "Add connection",
+}: {
+  /** Trigger button size — `sm` for a compact section-header button. */
+  size?: "default" | "sm";
+  variant?: "default" | "ghost" | "outline" | "secondary";
+  label?: string;
+} = {}) {
   const list = ConnectionsList.useList();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", company: "", email: "" });
@@ -99,8 +108,8 @@ export function AddConnectionDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Icons.plus className="size-4" /> Add connection
+        <Button size={size} variant={variant}>
+          <Icons.plus className={size === "sm" ? "size-3.5" : "size-4"} /> {label}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">

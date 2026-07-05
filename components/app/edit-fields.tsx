@@ -124,27 +124,51 @@ export function IconPicker({
   );
 }
 
-/** Edit a list of `{ label, tone }` tags: chips with remove + an add control. */
+/**
+ * Edit a list of `{ label, tone }` tags: chips with remove, one-click picks from
+ * tags used elsewhere, plus a labeled input and a color row for new tags. The
+ * color picker sits on its own row (not inline with the name) so the swatches
+ * have room to breathe.
+ */
 export function TagEditor({
   value,
   onChange,
+  suggestions = [],
 }: {
   value: TagType[];
   onChange: (tags: TagType[]) => void;
+  /** Tags used elsewhere, offered as one-click picks. */
+  suggestions?: TagType[];
 }) {
   const [draft, setDraft] = useState("");
   const [tone, setTone] = useState<Tone>("green");
 
+  const has = (label: string) =>
+    value.some((t) => t.label.toLowerCase() === label.toLowerCase());
+
+  const addTag = (tag: TagType) => {
+    if (!tag.label || has(tag.label)) return;
+    onChange([...value, tag]);
+  };
+
   const add = () => {
     const label = draft.trim();
-    if (!label || value.some((t) => t.label.toLowerCase() === label.toLowerCase()))
-      return;
-    onChange([...value, { label, tone }]);
+    if (!label || has(label)) return;
+    addTag({ label, tone });
     setDraft("");
   };
 
+  // Distinct suggestions (by label) that aren't already applied.
+  const picks = suggestions.filter(
+    (s, i) =>
+      !has(s.label) &&
+      suggestions.findIndex(
+        (o) => o.label.toLowerCase() === s.label.toLowerCase(),
+      ) === i,
+  );
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       {value.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {value.map((t, i) => (
@@ -168,6 +192,32 @@ export function TagEditor({
           ))}
         </div>
       ) : null}
+
+      {picks.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] text-muted-foreground">
+            Pick from existing
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {picks.map((t) => (
+              <button
+                key={t.label}
+                type="button"
+                onClick={() => addTag(t)}
+                aria-label={`Add ${t.label}`}
+                className={cn(
+                  "inline-flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs font-medium opacity-70 transition-opacity hover:opacity-100",
+                  toneBg[t.tone],
+                )}
+              >
+                <Icons.plus className="size-3" />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-1.5">
         <Input
           value={draft}
@@ -181,7 +231,6 @@ export function TagEditor({
           placeholder="Add a tag…"
           className="h-8"
         />
-        <TonePicker value={tone} onChange={setTone} />
         <Button
           type="button"
           variant="secondary"
@@ -192,6 +241,10 @@ export function TagEditor({
         >
           <Icons.plus className="size-4" />
         </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">Color</span>
+        <TonePicker value={tone} onChange={setTone} />
       </div>
     </div>
   );

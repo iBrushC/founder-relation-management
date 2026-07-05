@@ -23,8 +23,8 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${ibm.variable} ${spaceMono.variable} h-full antialiased`}>
-      <body className="h-full">{children}</body>
+    <html lang="en" className={`${ibm.variable} ${spaceMono.variable} no-scrollbar h-full antialiased`}>
+      <body className="no-scrollbar h-full">{children}</body>
     </html>
   );
 }

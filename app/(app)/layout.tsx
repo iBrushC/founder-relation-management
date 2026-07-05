@@ -11,7 +11,7 @@ export default function AppLayout({
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
-          <main className="flex-1 overflow-y-auto">{children}</main>
+          <main className="no-scrollbar flex-1 overflow-y-auto">{children}</main>
         </div>
       </div>
     </TooltipProvider>

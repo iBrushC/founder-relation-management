@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
+import { toneBg } from "@/lib/tone";
 import type { Connection, Interaction, Tag as TagType, Tone } from "@/lib/data";
 import { formatMonthDay, monthDayToIso } from "@/lib/data/format";
 import {
@@ -24,6 +27,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import type { ProjectLink } from "@/lib/data/project-links";
+
+export type { ProjectLink };
 
 /** Placeholder year used when storing a birthday (only month/day is shown). */
 const BIRTH_YEAR = 2000;
@@ -95,12 +101,18 @@ function toForm(c: Connection): Form {
 
 export function ConnectionPanel({
   connection,
+  projects = [],
+  tagSuggestions = [],
   open,
   onOpenChange,
   initialEditing = false,
   initialLogOpen = false,
 }: {
   connection: Connection | null;
+  /** Projects this connection is linked to. */
+  projects?: ProjectLink[];
+  /** Tags used elsewhere, offered as one-click picks in the editor. */
+  tagSuggestions?: TagType[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Open straight into edit mode (e.g. from a row's pencil button). */
@@ -111,10 +123,16 @@ export function ConnectionPanel({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[380px] gap-0 p-0 sm:max-w-[380px]">
+        <SheetHeader className="sr-only">
+          <SheetTitle>{connection?.name ?? "Connection"}</SheetTitle>
+          <SheetDescription>Connection details</SheetDescription>
+        </SheetHeader>
         {connection ? (
           <PanelBody
             key={connection.id}
             connection={connection}
+            projects={projects}
+            tagSuggestions={tagSuggestions}
             initialEditing={initialEditing}
             initialLogOpen={initialLogOpen}
             onClose={() => onOpenChange(false)}
@@ -126,18 +144,67 @@ export function ConnectionPanel({
 }
 
 /**
+ * Inline (in-page) variant used on the Connections page: the same body rendered
+ * in a bordered card that slides out beside the collapsed list, rather than in
+ * an overlay sheet.
+ */
+export function ConnectionDetailInline({
+  connection,
+  projects = [],
+  tagSuggestions = [],
+  initialEditing = false,
+  initialLogOpen = false,
+  onClose,
+}: {
+  connection: Connection;
+  projects?: ProjectLink[];
+  tagSuggestions?: TagType[];
+  initialEditing?: boolean;
+  initialLogOpen?: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="sfrm-slide-in relative flex max-h-[calc(100vh-11rem)] flex-col overflow-hidden rounded-md border border-border bg-card">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onClose}
+        aria-label="Close details"
+        className="absolute top-3 right-3 z-10 text-muted-foreground"
+      >
+        <Icons.x className="size-4" />
+      </Button>
+      <PanelBody
+        key={connection.id}
+        connection={connection}
+        projects={projects}
+        tagSuggestions={tagSuggestions}
+        initialEditing={initialEditing}
+        initialLogOpen={initialLogOpen}
+        onClose={onClose}
+      />
+    </div>
+  );
+}
+
+/**
  * Inner body, remounted per connection (keyed by id) so `useState` initializers
  * re-seed from the selected row. Owns the local `current` view of the record and
  * the edit `form`; edits persist through the connections list (optimistic when a
- * provider is present) and are reflected locally right away.
+ * provider is present) and are reflected locally right away. Uses plain markup
+ * (not Sheet primitives) so it renders identically inline or inside the Sheet.
  */
 function PanelBody({
   connection,
+  projects,
+  tagSuggestions,
   initialEditing,
   initialLogOpen,
   onClose,
 }: {
   connection: Connection;
+  projects: ProjectLink[];
+  tagSuggestions: TagType[];
   initialEditing: boolean;
   initialLogOpen: boolean;
   onClose: () => void;
@@ -230,7 +297,7 @@ function PanelBody({
 
   return (
     <>
-      <SheetHeader className="gap-3 border-b border-border p-5">
+      <div className="flex flex-col gap-3 border-b border-border p-5 pr-12">
         <div className="flex items-center gap-3">
           <InitialsAvatar
             name={form.name || current.name}
@@ -238,13 +305,11 @@ function PanelBody({
             className="size-11 text-sm"
           />
           <div className="min-w-0 flex-1">
-            <SheetTitle className="font-sans text-base font-semibold">
-              {current.name}
-            </SheetTitle>
-            <SheetDescription>
+            <h2 className="font-sans text-base font-semibold">{current.name}</h2>
+            <p className="text-sm text-muted-foreground">
               {[current.role, current.company].filter(Boolean).join(" · ") ||
                 "Connection"}
-            </SheetDescription>
+            </p>
           </div>
         </div>
         {!editing && current.tags.length > 0 ? (
@@ -254,11 +319,17 @@ function PanelBody({
             ))}
           </div>
         ) : null}
-      </SheetHeader>
+      </div>
 
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-5">
         {editing ? (
           <>
+            <EditRow label="Avatar color">
+              <TonePicker
+                value={form.avatarTone}
+                onChange={setField("avatarTone")}
+              />
+            </EditRow>
             <EditRow label="Name" htmlFor="c-name">
               <Input id="c-name" value={form.name} onChange={setInput("name")} />
             </EditRow>
@@ -307,12 +378,10 @@ function PanelBody({
               />
             </EditRow>
             <EditRow label="Tags">
-              <TagEditor value={form.tags} onChange={setField("tags")} />
-            </EditRow>
-            <EditRow label="Avatar color">
-              <TonePicker
-                value={form.avatarTone}
-                onChange={setField("avatarTone")}
+              <TagEditor
+                value={form.tags}
+                onChange={setField("tags")}
+                suggestions={tagSuggestions}
               />
             </EditRow>
             <EditRow label="Notes" htmlFor="c-note">
@@ -352,6 +421,29 @@ function PanelBody({
                 ) : null}
               </div>
             </Block>
+
+            {projects.length > 0 ? (
+              <Block title="Projects">
+                <div className="flex flex-wrap gap-1.5">
+                  {projects.map((p) => {
+                    const Icon = Icons[p.icon];
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/projects/${p.id}`}
+                        className={cn(
+                          "inline-flex h-6 items-center gap-1.5 rounded-[5px] px-2 text-xs font-medium transition-opacity hover:opacity-80",
+                          toneBg[p.tone],
+                        )}
+                      >
+                        <Icon className="size-3.5" />
+                        {p.name}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </Block>
+            ) : null}
 
             <Block title="Notes">
               {current.note ? (
