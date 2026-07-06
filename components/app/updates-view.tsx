@@ -8,6 +8,7 @@ import { toneBg } from "@/lib/tone";
 import type { Connection, Project, Update } from "@/lib/data";
 import { UpdateRow } from "@/components/app/rows";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -15,6 +16,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+
+const PAGE_SIZE = 5;
 
 export function UpdatesView({
   updates,
@@ -26,13 +29,48 @@ export function UpdatesView({
   projectsById: Record<string, Project>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const selected = updates.find((u) => u.id === selectedId) ?? null;
+
+  const pageCount = Math.max(1, Math.ceil(updates.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const start = currentPage * PAGE_SIZE;
+  const visible = updates.slice(start, start + PAGE_SIZE);
 
   return (
     <div className="flex flex-col gap-1.5">
-      {updates.map((u) => (
+      {visible.map((u) => (
         <UpdateRow key={u.id} update={u} onClick={() => setSelectedId(u.id)} />
       ))}
+
+      {updates.length > PAGE_SIZE ? (
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            {start + 1}–{Math.min(start + PAGE_SIZE, updates.length)} of{" "}
+            {updates.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={currentPage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              <Icons.chevronRight className="size-3.5 rotate-180" />
+              Prev
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={currentPage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            >
+              Next
+              <Icons.chevronRight className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <UpdatePanel
         update={selected}

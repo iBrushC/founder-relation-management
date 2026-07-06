@@ -642,6 +642,7 @@ export function SettingsView() {
   const [checkins, setCheckins] = useState({ on: true, value: 6, unit: "weeks" });
   const [deadlines, setDeadlines] = useState({ on: true, value: 3, unit: "days" });
   const [events, setEvents] = useState({ on: true, timing: "day-of" });
+  const [followups, setFollowups] = useState({ on: true, count: 3, interval: 7 });
 
   // Integrations
   const [google, setGoogle] = useState(true);
@@ -719,6 +720,49 @@ export function SettingsView() {
                 ))}
               </SelectContent>
             </Select>
+          </NotificationRow>
+
+          <NotificationRow
+            title="Outreach follow-ups"
+            description="Keep nudging you until a founder replies to your outreach."
+            enabled={followups.on}
+            onToggle={(on) => setFollowups((s) => ({ ...s, on }))}
+          >
+            <span className="text-xs whitespace-nowrap text-muted-foreground">
+              Send up to
+            </span>
+            <Input
+              type="number"
+              min={1}
+              value={followups.count}
+              onChange={(e) =>
+                setFollowups((s) => ({
+                  ...s,
+                  count: Math.max(1, Number(e.target.value) || 1),
+                }))
+              }
+              className="h-7 w-14 px-2 text-center tabular-nums"
+              aria-label="Number of follow-up reminders"
+            />
+            <span className="text-xs whitespace-nowrap text-muted-foreground">
+              follow-up reminders, one every
+            </span>
+            <Input
+              type="number"
+              min={1}
+              value={followups.interval}
+              onChange={(e) =>
+                setFollowups((s) => ({
+                  ...s,
+                  interval: Math.max(1, Number(e.target.value) || 1),
+                }))
+              }
+              className="h-7 w-14 px-2 text-center tabular-nums"
+              aria-label="Days between reminders"
+            />
+            <span className="text-xs whitespace-nowrap text-muted-foreground">
+              days
+            </span>
           </NotificationRow>
         </Card>
       </Section>
