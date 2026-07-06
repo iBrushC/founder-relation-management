@@ -22,7 +22,7 @@ import {
   type Tag,
   type Tone,
 } from "@/drizzle/schema";
-import type { OutreachStatus } from "@/lib/data";
+import type { EventItem, OutreachStatus, Project } from "@/lib/data";
 import {
   me,
   connections as demoConnections,
@@ -30,19 +30,47 @@ import {
   projects as demoProjects,
   type Connection,
 } from "@/lib/data";
+import { listConnections, listEvents, listProjects } from "@/lib/data/crm";
 import { verifySession } from "@/lib/data/session";
 import { withUserRLS } from "@/lib/db/rls";
 import { monthDayToIso } from "./format";
 import { toConnection } from "./mappers";
+import { type ActionResult, fail, firstIssue, run } from "./result";
+import {
+  CreateConnectionInput,
+  CreateEventInput,
+  CreateOutreachInput,
+  CreateProjectInput,
+  CreateStageInput,
+  CreateTaskInput,
+  InteractionsInput,
+  SubtasksInput,
+  UpdateConnectionPatch,
+  UpdateEventPatch,
+  UpdateOutreachPatch,
+  UpdateProjectPatch,
+  UpdateTaskPatch,
+  txt,
+  zInteraction,
+  zUuid,
+} from "./validation";
 
 /**
  * Write side of the CRM data layer: the "Load sample data" seeder plus the
  * handful of basic mutations wired to the UI's primary buttons. Everything runs
  * through `withUserRLS`, and each write first ensures the caller has a `profiles`
  * row (every table's `owner_id` references it).
+ *
+ * Every mutation returns an `ActionResult` (see `./result`): validation rejects
+ * with a specific `{ ok: false, error }`, a thrown DB error is caught by `run`
+ * into a generic failure, and success is `{ ok: true }`. This lets the client
+ * revert its optimistic change and surface a message instead of failing silent.
  */
 
 type Tx = Parameters<Parameters<typeof withUserRLS>[0]>[0];
+
+/** Shown when a well-formed request references an id that fails a uuid check. */
+const BAD_ID = "That record could not be found.";
 
 /** Placeholder year for birthdays — only the month/day is ever shown. */
 const BIRTH_YEAR = 2000;
@@ -92,147 +120,148 @@ function categoryFor(name: string): EventCategory {
  * data the prototype used to hard-code). Wipes any existing CRM rows first so the
  * button is safe to click more than once. Runs in one transaction.
  */
-export async function seedSampleData(): Promise<{ ok: true }> {
+export async function seedSampleData(): Promise<ActionResult> {
   const user = await verifySession();
   const nowIso = new Date().toISOString();
   const dueYear = new Date().getFullYear();
 
-  await withUserRLS(async (tx) => {
-    await ensureProfile(tx, user, me.name);
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user, me.name);
 
-    // Clear first (children cascade from these three parents).
-    await tx.delete(events);
-    await tx.delete(projects);
-    await tx.delete(connections);
+      // Clear first (children cascade from these three parents).
+      await tx.delete(events);
+      await tx.delete(projects);
+      await tx.delete(connections);
 
-    // Connections — keep a slug → new-uuid map to wire up the relations below.
-    const idBySlug = new Map<string, string>();
-    for (const c of demoConnections) {
-      const [row] = await tx
-        .insert(connections)
-        .values({
-          ownerId: user.userId,
-          name: c.name,
-          role: c.role || null,
-          company: c.company || null,
-          avatarTone: c.avatarTone,
-          email: c.email || null,
-          phone: c.phone || null,
-          location: c.location || null,
-          linkedin: c.linkedin || null,
-          birthday: monthDayToIso(c.birthday, BIRTH_YEAR),
-          tags: c.tags,
-          interactions: c.timeline,
-          notes: c.note
-            ? [{ id: randomUUID(), body: c.note, createdAt: nowIso }]
-            : [],
-          extraFields: c.extraFields,
-        })
-        .returning({ id: connections.id });
-      idBySlug.set(c.id, row.id);
-    }
-
-    // Projects + their tasks, stages, and participants.
-    for (const p of demoProjects) {
-      const [row] = await tx
-        .insert(projects)
-        .values({
-          ownerId: user.userId,
-          name: p.name,
-          icon: p.icon,
-          tone: p.tone,
-          summary: p.summary || null,
-          description: p.description || null,
-          statusLabel: p.status.label,
-          statusTone: p.status.tone,
-          tags: [],
-        })
-        .returning({ id: projects.id });
-
-      for (const [i, t] of p.tasks.entries()) {
-        await tx.insert(projectTasks).values({
-          ownerId: user.userId,
-          projectId: row.id,
-          label: t.label,
-          done: t.done,
-          dueDate: t.due ? monthDayToIso(t.due, dueYear) : null,
-          description: t.description ?? null,
-          subtasks: t.subtasks ?? [],
-          position: i,
-        });
+      // Connections — keep a slug → new-uuid map to wire up the relations below.
+      const idBySlug = new Map<string, string>();
+      for (const c of demoConnections) {
+        const [row] = await tx
+          .insert(connections)
+          .values({
+            ownerId: user.userId,
+            name: c.name,
+            role: c.role || null,
+            company: c.company || null,
+            avatarTone: c.avatarTone,
+            email: c.email || null,
+            phone: c.phone || null,
+            location: c.location || null,
+            linkedin: c.linkedin || null,
+            birthday: monthDayToIso(c.birthday, BIRTH_YEAR),
+            tags: c.tags,
+            interactions: c.timeline,
+            notes: c.note
+              ? [{ id: randomUUID(), body: c.note, createdAt: nowIso }]
+              : [],
+            extraFields: c.extraFields,
+          })
+          .returning({ id: connections.id });
+        idBySlug.set(c.id, row.id);
       }
-      for (const [i, ph] of p.phases.entries()) {
-        await tx.insert(projectStages).values({
-          ownerId: user.userId,
-          projectId: row.id,
-          label: ph.label,
-          tone: ph.tone,
-          startDate: ph.start,
-          endDate: ph.end,
-          position: i,
-        });
-      }
-      for (const cid of p.connectionIds) {
-        const connectionId = idBySlug.get(cid);
-        if (connectionId) {
-          await tx.insert(projectParticipants).values({
+
+      // Projects + their tasks, stages, and participants.
+      for (const p of demoProjects) {
+        const [row] = await tx
+          .insert(projects)
+          .values({
+            ownerId: user.userId,
+            name: p.name,
+            icon: p.icon,
+            tone: p.tone,
+            summary: p.summary || null,
+            description: p.description || null,
+            statusLabel: p.status.label,
+            statusTone: p.status.tone,
+            tags: [],
+          })
+          .returning({ id: projects.id });
+
+        for (const [i, t] of p.tasks.entries()) {
+          await tx.insert(projectTasks).values({
             ownerId: user.userId,
             projectId: row.id,
-            connectionId,
+            label: t.label,
+            done: t.done,
+            dueDate: t.due ? monthDayToIso(t.due, dueYear) : null,
+            description: t.description ?? null,
+            subtasks: t.subtasks ?? [],
+            position: i,
           });
         }
-      }
-      for (const [i, o] of p.outreach.entries()) {
-        await tx.insert(projectOutreach).values({
-          ownerId: user.userId,
-          projectId: row.id,
-          connectionId: o.connectionId ? idBySlug.get(o.connectionId) ?? null : null,
-          label: o.label,
-          channel: o.channel || null,
-          email: o.email || null,
-          phone: o.phone || null,
-          website: o.website || null,
-          status: o.status,
-          lastContacted: o.lastContacted || null,
-          followUpAt: o.followUpAt || null,
-          notes: o.notes || null,
-          position: i,
-        });
-      }
-    }
-
-    // Events + the people met at each.
-    for (const e of demoEvents) {
-      const [row] = await tx
-        .insert(events)
-        .values({
-          ownerId: user.userId,
-          name: e.name,
-          category: categoryFor(e.name),
-          eventDate: whenToIso(e.when),
-          location: e.where || null,
-          organizers: e.organizers,
-          metGuests: e.metGuests ?? [],
-          note: e.note || null,
-          avatarTone: e.avatarTone,
-        })
-        .returning({ id: events.id });
-
-      for (const cid of e.metIds) {
-        const connectionId = idBySlug.get(cid);
-        if (connectionId) {
-          await tx.insert(eventParticipants).values({
+        for (const [i, ph] of p.phases.entries()) {
+          await tx.insert(projectStages).values({
             ownerId: user.userId,
-            eventId: row.id,
-            connectionId,
+            projectId: row.id,
+            label: ph.label,
+            tone: ph.tone,
+            startDate: ph.start,
+            endDate: ph.end,
+            position: i,
+          });
+        }
+        for (const cid of p.connectionIds) {
+          const connectionId = idBySlug.get(cid);
+          if (connectionId) {
+            await tx.insert(projectParticipants).values({
+              ownerId: user.userId,
+              projectId: row.id,
+              connectionId,
+            });
+          }
+        }
+        for (const [i, o] of p.outreach.entries()) {
+          await tx.insert(projectOutreach).values({
+            ownerId: user.userId,
+            projectId: row.id,
+            connectionId: o.connectionId ? idBySlug.get(o.connectionId) ?? null : null,
+            label: o.label,
+            channel: o.channel || null,
+            email: o.email || null,
+            phone: o.phone || null,
+            website: o.website || null,
+            status: o.status,
+            lastContacted: o.lastContacted || null,
+            followUpAt: o.followUpAt || null,
+            notes: o.notes || null,
+            position: i,
           });
         }
       }
-    }
-  });
 
-  revalidatePath("/", "layout");
-  return { ok: true };
+      // Events + the people met at each.
+      for (const e of demoEvents) {
+        const [row] = await tx
+          .insert(events)
+          .values({
+            ownerId: user.userId,
+            name: e.name,
+            category: categoryFor(e.name),
+            eventDate: whenToIso(e.when),
+            location: e.where || null,
+            organizers: e.organizers,
+            metGuests: e.metGuests ?? [],
+            note: e.note || null,
+            avatarTone: e.avatarTone,
+          })
+          .returning({ id: events.id });
+
+        for (const cid of e.metIds) {
+          const connectionId = idBySlug.get(cid);
+          if (connectionId) {
+            await tx.insert(eventParticipants).values({
+              ownerId: user.userId,
+              eventId: row.id,
+              connectionId,
+            });
+          }
+        }
+      }
+    });
+
+    revalidatePath("/", "layout");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,12 +273,15 @@ export async function toggleTask(
   taskId: string,
   done: boolean,
   projectId?: string,
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx.update(projectTasks).set({ done }).where(eq(projectTasks.id, taskId)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(taskId).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.update(projectTasks).set({ done }).where(eq(projectTasks.id, taskId)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 /** Persist a task's checklist after a subtask is toggled. */
@@ -257,11 +289,16 @@ export async function updateSubtasks(
   taskId: string,
   subtasks: Subtask[],
   projectId?: string,
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx.update(projectTasks).set({ subtasks }).where(eq(projectTasks.id, taskId)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(taskId).success) return fail(BAD_ID);
+  const parsed = SubtasksInput.safeParse(subtasks);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.update(projectTasks).set({ subtasks }).where(eq(projectTasks.id, taskId)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+  });
 }
 
 export async function createConnection(input: {
@@ -269,80 +306,92 @@ export async function createConnection(input: {
   role?: string;
   company?: string;
   email?: string;
-}): Promise<void> {
+}): Promise<ActionResult> {
+  const parsed = CreateConnectionInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const name = input.name.trim();
-  if (!name) return;
 
-  await withUserRLS(async (tx) => {
-    await ensureProfile(tx, user);
-    await tx.insert(connections).values({
-      ownerId: user.userId,
-      name,
-      role: input.role?.trim() || null,
-      company: input.company?.trim() || null,
-      email: input.email?.trim() || null,
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      await tx.insert(connections).values({
+        ownerId: user.userId,
+        name: input.name.trim(),
+        role: input.role?.trim() || null,
+        company: input.company?.trim() || null,
+        email: input.email?.trim() || null,
+      });
     });
+    revalidatePath("/connections");
+    revalidatePath("/");
   });
-  revalidatePath("/connections");
-  revalidatePath("/");
 }
 
 export async function createEvent(input: {
   name: string;
   eventDate: string;
   location?: string;
-}): Promise<void> {
+}): Promise<ActionResult> {
+  const parsed = CreateEventInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const name = input.name.trim();
-  if (!name || !input.eventDate) return;
 
-  await withUserRLS(async (tx) => {
-    await ensureProfile(tx, user);
-    await tx.insert(events).values({
-      ownerId: user.userId,
-      name,
-      category: categoryFor(name),
-      eventDate: input.eventDate,
-      location: input.location?.trim() || null,
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      await tx.insert(events).values({
+        ownerId: user.userId,
+        name: input.name.trim(),
+        category: categoryFor(input.name.trim()),
+        eventDate: input.eventDate,
+        location: input.location?.trim() || null,
+      });
     });
+    revalidatePath("/events");
+    revalidatePath("/");
   });
-  revalidatePath("/events");
-  revalidatePath("/");
 }
 
 export async function createProject(input: {
   name: string;
   summary?: string;
-}): Promise<void> {
+}): Promise<ActionResult> {
+  const parsed = CreateProjectInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const name = input.name.trim();
-  if (!name) return;
 
-  await withUserRLS(async (tx) => {
-    await ensureProfile(tx, user);
-    await tx.insert(projects).values({
-      ownerId: user.userId,
-      name,
-      summary: input.summary?.trim() || null,
-      statusLabel: "Active",
-      statusTone: "green",
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      await tx.insert(projects).values({
+        ownerId: user.userId,
+        name: input.name.trim(),
+        summary: input.summary?.trim() || null,
+        statusLabel: "Active",
+        statusTone: "green",
+      });
     });
+    revalidatePath("/projects");
+    revalidatePath("/");
   });
-  revalidatePath("/projects");
-  revalidatePath("/");
 }
 
-export async function removeConnection(id: string): Promise<void> {
-  await withUserRLS((tx) => tx.delete(connections).where(eq(connections.id, id)));
-  revalidatePath("/connections");
-  revalidatePath("/");
+export async function removeConnection(id: string): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) => tx.delete(connections).where(eq(connections.id, id)));
+    revalidatePath("/connections");
+    revalidatePath("/");
+  });
 }
 
-export async function removeEvent(id: string): Promise<void> {
-  await withUserRLS((tx) => tx.delete(events).where(eq(events.id, id)));
-  revalidatePath("/events");
-  revalidatePath("/");
+export async function removeEvent(id: string): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) => tx.delete(events).where(eq(events.id, id)));
+    revalidatePath("/events");
+    revalidatePath("/");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -375,69 +424,81 @@ export async function updateConnection(
     avatarTone?: Tone;
     extraFields?: ExtraField[];
   },
-): Promise<void> {
-  const name = patch.name.trim();
-  if (!name) return;
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  const parsed = UpdateConnectionPatch.safeParse(patch);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
 
-  await withUserRLS((tx) =>
-    tx
-      .update(connections)
-      .set({
-        name,
-        role: orNull(patch.role),
-        company: orNull(patch.company),
-        email: orNull(patch.email),
-        phone: orNull(patch.phone),
-        location: orNull(patch.location),
-        linkedin: orNull(patch.linkedin),
-        birthday: patch.birthday ?? null,
-        ...(patch.tags ? { tags: patch.tags } : {}),
-        ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
-        ...(patch.extraFields ? { extraFields: patch.extraFields } : {}),
-      })
-      .where(eq(connections.id, id)),
-  );
-  revalidatePath("/connections");
-  revalidatePath("/");
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .update(connections)
+        .set({
+          name: patch.name.trim(),
+          role: orNull(patch.role),
+          company: orNull(patch.company),
+          email: orNull(patch.email),
+          phone: orNull(patch.phone),
+          location: orNull(patch.location),
+          linkedin: orNull(patch.linkedin),
+          birthday: patch.birthday ?? null,
+          ...(patch.tags ? { tags: patch.tags } : {}),
+          ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
+          ...(patch.extraFields ? { extraFields: patch.extraFields } : {}),
+        })
+        .where(eq(connections.id, id)),
+    );
+    revalidatePath("/connections");
+    revalidatePath("/");
+  });
 }
 
 /** Prepend one entry to a connection's interaction timeline (most-recent first). */
 export async function logInteraction(
   connectionId: string,
   interaction: Interaction,
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  const parsed = zInteraction.safeParse(interaction);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const label = interaction.label.trim();
-  if (!label) return;
   const when = interaction.when.trim() || "Just now";
 
-  await withUserRLS(async (tx) => {
-    const [row] = await tx
-      .select({ interactions: connections.interactions })
-      .from(connections)
-      .where(eq(connections.id, connectionId));
-    if (!row) return;
-    await tx
-      .update(connections)
-      .set({ interactions: [{ label, when }, ...(row.interactions ?? [])] })
-      .where(eq(connections.id, connectionId));
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const [row] = await tx
+        .select({ interactions: connections.interactions })
+        .from(connections)
+        .where(eq(connections.id, connectionId));
+      if (!row) return;
+      await tx
+        .update(connections)
+        .set({ interactions: [{ label, when }, ...(row.interactions ?? [])] })
+        .where(eq(connections.id, connectionId));
+    });
+    revalidatePath("/connections");
+    revalidatePath("/");
   });
-  revalidatePath("/connections");
-  revalidatePath("/");
 }
 
 /** Replace a connection's whole timeline (used to edit/reorder/delete entries). */
 export async function updateInteractions(
   connectionId: string,
   interactions: Interaction[],
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx
-      .update(connections)
-      .set({ interactions })
-      .where(eq(connections.id, connectionId)),
-  );
-  revalidatePath("/connections");
-  revalidatePath("/");
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  const parsed = InteractionsInput.safeParse(interactions);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .update(connections)
+        .set({ interactions })
+        .where(eq(connections.id, connectionId)),
+    );
+    revalidatePath("/connections");
+    revalidatePath("/");
+  });
 }
 
 /**
@@ -447,33 +508,38 @@ export async function updateInteractions(
 export async function updateConnectionNote(
   connectionId: string,
   body: string,
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  const parsed = txt(5000).safeParse(body);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const text = body.trim();
 
-  await withUserRLS(async (tx) => {
-    const [row] = await tx
-      .select({ notes: connections.notes })
-      .from(connections)
-      .where(eq(connections.id, connectionId));
-    if (!row) return;
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const [row] = await tx
+        .select({ notes: connections.notes })
+        .from(connections)
+        .where(eq(connections.id, connectionId));
+      if (!row) return;
 
-    const existing = row.notes?.[0];
-    const notes: ConnectionNote[] = !text
-      ? []
-      : [
-          {
-            id: existing?.id ?? randomUUID(),
-            body: text,
-            createdAt: existing?.createdAt ?? new Date().toISOString(),
-          },
-        ];
-    await tx
-      .update(connections)
-      .set({ notes })
-      .where(eq(connections.id, connectionId));
+      const existing = row.notes?.[0];
+      const notes: ConnectionNote[] = !text
+        ? []
+        : [
+            {
+              id: existing?.id ?? randomUUID(),
+              body: text,
+              createdAt: existing?.createdAt ?? new Date().toISOString(),
+            },
+          ];
+      await tx
+        .update(connections)
+        .set({ notes })
+        .where(eq(connections.id, connectionId));
+    });
+    revalidatePath("/connections");
+    revalidatePath("/");
   });
-  revalidatePath("/connections");
-  revalidatePath("/");
 }
 
 /** Update an event's editable fields. Date is required; the rest may clear. */
@@ -488,27 +554,30 @@ export async function updateEvent(
     note?: string;
     avatarTone?: Tone;
   },
-): Promise<void> {
-  const name = patch.name.trim();
-  if (!name || !patch.eventDate) return;
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  const parsed = UpdateEventPatch.safeParse(patch);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
 
-  await withUserRLS((tx) =>
-    tx
-      .update(events)
-      .set({
-        name,
-        category: categoryFor(name),
-        eventDate: patch.eventDate,
-        location: orNull(patch.location),
-        note: orNull(patch.note),
-        ...(patch.organizers ? { organizers: patch.organizers } : {}),
-        ...(patch.metGuests ? { metGuests: patch.metGuests } : {}),
-        ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
-      })
-      .where(eq(events.id, id)),
-  );
-  revalidatePath("/events");
-  revalidatePath("/");
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .update(events)
+        .set({
+          name: patch.name.trim(),
+          category: categoryFor(patch.name.trim()),
+          eventDate: patch.eventDate,
+          location: orNull(patch.location),
+          note: orNull(patch.note),
+          ...(patch.organizers ? { organizers: patch.organizers } : {}),
+          ...(patch.metGuests ? { metGuests: patch.metGuests } : {}),
+          ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
+        })
+        .where(eq(events.id, id)),
+    );
+    revalidatePath("/events");
+    revalidatePath("/");
+  });
 }
 
 /** Update a project's editable fields (header + presentation). */
@@ -523,33 +592,39 @@ export async function updateProject(
     icon?: string;
     tone?: Tone;
   },
-): Promise<void> {
-  const name = patch.name.trim();
-  if (!name) return;
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  const parsed = UpdateProjectPatch.safeParse(patch);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
 
-  await withUserRLS((tx) =>
-    tx
-      .update(projects)
-      .set({
-        name,
-        summary: orNull(patch.summary),
-        description: orNull(patch.description),
-        statusLabel: orNull(patch.statusLabel),
-        ...(patch.statusTone ? { statusTone: patch.statusTone } : {}),
-        ...(patch.icon ? { icon: patch.icon } : {}),
-        ...(patch.tone ? { tone: patch.tone } : {}),
-      })
-      .where(eq(projects.id, id)),
-  );
-  revalidatePath(`/projects/${id}`);
-  revalidatePath("/projects");
-  revalidatePath("/");
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .update(projects)
+        .set({
+          name: patch.name.trim(),
+          summary: orNull(patch.summary),
+          description: orNull(patch.description),
+          statusLabel: orNull(patch.statusLabel),
+          ...(patch.statusTone ? { statusTone: patch.statusTone } : {}),
+          ...(patch.icon ? { icon: patch.icon } : {}),
+          ...(patch.tone ? { tone: patch.tone } : {}),
+        })
+        .where(eq(projects.id, id)),
+    );
+    revalidatePath(`/projects/${id}`);
+    revalidatePath("/projects");
+    revalidatePath("/");
+  });
 }
 
-export async function removeProject(id: string): Promise<void> {
-  await withUserRLS((tx) => tx.delete(projects).where(eq(projects.id, id)));
-  revalidatePath("/projects");
-  revalidatePath("/");
+export async function removeProject(id: string): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) => tx.delete(projects).where(eq(projects.id, id)));
+    revalidatePath("/projects");
+    revalidatePath("/");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -560,27 +635,30 @@ export async function removeProject(id: string): Promise<void> {
 export async function createTask(
   projectId: string,
   input: { label: string; dueDate?: string | null; description?: string },
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  const parsed = CreateTaskInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const label = input.label.trim();
-  if (!label) return;
 
-  await withUserRLS(async (tx) => {
-    const [{ count }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(projectTasks)
-      .where(eq(projectTasks.projectId, projectId));
-    await tx.insert(projectTasks).values({
-      ownerId: user.userId,
-      projectId,
-      label,
-      dueDate: input.dueDate ?? null,
-      description: orNull(input.description),
-      position: count,
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(projectTasks)
+        .where(eq(projectTasks.projectId, projectId));
+      await tx.insert(projectTasks).values({
+        ownerId: user.userId,
+        projectId,
+        label: input.label.trim(),
+        dueDate: input.dueDate ?? null,
+        description: orNull(input.description),
+        position: count,
+      });
     });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
   });
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
 }
 
 /** Edit a task's label, due date, and/or description. */
@@ -588,37 +666,41 @@ export async function updateTask(
   taskId: string,
   patch: { label?: string; dueDate?: string | null; description?: string },
   projectId?: string,
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(taskId).success) return fail(BAD_ID);
+  const parsed = UpdateTaskPatch.safeParse(patch);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const set: Partial<{
     label: string;
     dueDate: string | null;
     description: string | null;
   }> = {};
-  if (patch.label !== undefined) {
-    const label = patch.label.trim();
-    if (!label) return;
-    set.label = label;
-  }
+  if (patch.label !== undefined) set.label = patch.label.trim();
   if (patch.dueDate !== undefined) set.dueDate = patch.dueDate ?? null;
   if (patch.description !== undefined) set.description = orNull(patch.description);
-  if (Object.keys(set).length === 0) return;
+  if (Object.keys(set).length === 0) return { ok: true };
 
-  await withUserRLS((tx) =>
-    tx.update(projectTasks).set(set).where(eq(projectTasks.id, taskId)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.update(projectTasks).set(set).where(eq(projectTasks.id, taskId)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 export async function removeTask(
   taskId: string,
   projectId?: string,
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx.delete(projectTasks).where(eq(projectTasks.id, taskId)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(taskId).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.delete(projectTasks).where(eq(projectTasks.id, taskId)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -630,39 +712,52 @@ export async function linkParticipant(
   projectId: string,
   connectionId: string,
   role?: string,
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  if (role !== undefined) {
+    const parsed = txt(200).safeParse(role);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+  }
   const user = await verifySession();
-  await withUserRLS((tx) =>
-    tx
-      .insert(projectParticipants)
-      .values({
-        ownerId: user.userId,
-        projectId,
-        connectionId,
-        role: orNull(role),
-      })
-      .onConflictDoNothing(),
-  );
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .insert(projectParticipants)
+        .values({
+          ownerId: user.userId,
+          projectId,
+          connectionId,
+          role: orNull(role),
+        })
+        .onConflictDoNothing(),
+    );
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 export async function unlinkParticipant(
   projectId: string,
   connectionId: string,
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx
-      .delete(projectParticipants)
-      .where(
-        and(
-          eq(projectParticipants.projectId, projectId),
-          eq(projectParticipants.connectionId, connectionId),
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .delete(projectParticipants)
+        .where(
+          and(
+            eq(projectParticipants.projectId, projectId),
+            eq(projectParticipants.connectionId, connectionId),
+          ),
         ),
-      ),
-  );
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+    );
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 /**
@@ -673,35 +768,37 @@ export async function unlinkParticipant(
 export async function createLinkedConnection(
   projectId: string,
   input: { name: string; role?: string; company?: string; email?: string },
-): Promise<Connection | null> {
+): Promise<ActionResult<Connection>> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  const parsed = CreateConnectionInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const name = input.name.trim();
-  if (!name) return null;
 
-  let created: Connection | null = null;
-  await withUserRLS(async (tx) => {
-    await ensureProfile(tx, user);
-    const [row] = await tx
-      .insert(connections)
-      .values({
-        ownerId: user.userId,
-        name,
-        role: input.role?.trim() || null,
-        company: input.company?.trim() || null,
-        email: input.email?.trim() || null,
-      })
-      .returning();
-    await tx
-      .insert(projectParticipants)
-      .values({ ownerId: user.userId, projectId, connectionId: row.id })
-      .onConflictDoNothing();
-    created = toConnection(row, 0);
+  return run(async () => {
+    const created = await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      const [row] = await tx
+        .insert(connections)
+        .values({
+          ownerId: user.userId,
+          name: input.name.trim(),
+          role: input.role?.trim() || null,
+          company: input.company?.trim() || null,
+          email: input.email?.trim() || null,
+        })
+        .returning();
+      await tx
+        .insert(projectParticipants)
+        .values({ ownerId: user.userId, projectId, connectionId: row.id })
+        .onConflictDoNothing();
+      return toConnection(row, 0);
+    });
+
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/connections");
+    revalidatePath("/");
+    return created;
   });
-
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/connections");
-  revalidatePath("/");
-  return created;
 }
 
 /* ------------------------------------------------------------------ */
@@ -712,33 +809,36 @@ export async function createLinkedConnection(
 export async function createStage(
   projectId: string,
   input: { label: string; startDate: string; endDate: string; tone?: Tone },
-): Promise<void> {
-  const user = await verifySession();
-  const label = input.label.trim();
-  if (!label || !input.startDate || !input.endDate) return;
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  const parsed = CreateStageInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   // Guard against inverted ranges — keep start ≤ end.
   const [startDate, endDate] =
     input.startDate <= input.endDate
       ? [input.startDate, input.endDate]
       : [input.endDate, input.startDate];
+  const user = await verifySession();
 
-  await withUserRLS(async (tx) => {
-    const [{ count }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(projectStages)
-      .where(eq(projectStages.projectId, projectId));
-    await tx.insert(projectStages).values({
-      ownerId: user.userId,
-      projectId,
-      label,
-      tone: input.tone ?? "slate",
-      startDate,
-      endDate,
-      position: count,
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(projectStages)
+        .where(eq(projectStages.projectId, projectId));
+      await tx.insert(projectStages).values({
+        ownerId: user.userId,
+        projectId,
+        label: input.label.trim(),
+        tone: input.tone ?? "slate",
+        startDate,
+        endDate,
+        position: count,
+      });
     });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
   });
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
 }
 
 /* ------------------------------------------------------------------ */
@@ -766,36 +866,39 @@ export async function createOutreach(
     followUpAt?: string | null;
     notes?: string;
   },
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(projectId).success) return fail(BAD_ID);
+  const parsed = CreateOutreachInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const user = await verifySession();
-  const label = input.label.trim();
-  if (!label) return;
 
-  await withUserRLS(async (tx) => {
-    const [{ count }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(projectOutreach)
-      .where(eq(projectOutreach.projectId, projectId));
-    await tx.insert(projectOutreach).values({
-      ownerId: user.userId,
-      projectId,
-      connectionId: input.connectionId || null,
-      label,
-      channel: orNull(input.channel),
-      email: orNull(input.email),
-      phone: orNull(input.phone),
-      website: orNull(input.website),
-      status: input.status ?? "Not started",
-      lastContacted: input.lastContacted || null,
-      // `undefined` → default a week out; an empty string → no reminder.
-      followUpAt:
-        input.followUpAt === undefined ? plusDaysIso(7) : input.followUpAt || null,
-      notes: orNull(input.notes),
-      position: count,
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(projectOutreach)
+        .where(eq(projectOutreach.projectId, projectId));
+      await tx.insert(projectOutreach).values({
+        ownerId: user.userId,
+        projectId,
+        connectionId: input.connectionId || null,
+        label: input.label.trim(),
+        channel: orNull(input.channel),
+        email: orNull(input.email),
+        phone: orNull(input.phone),
+        website: orNull(input.website),
+        status: input.status ?? "Not started",
+        lastContacted: input.lastContacted || null,
+        // `undefined` → default a week out; an empty string → no reminder.
+        followUpAt:
+          input.followUpAt === undefined ? plusDaysIso(7) : input.followUpAt || null,
+        notes: orNull(input.notes),
+        position: count,
+      });
     });
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
   });
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
 }
 
 /** Edit an outreach recipient's fields. Only provided keys are changed. */
@@ -814,7 +917,10 @@ export async function updateOutreach(
     notes?: string;
   },
   projectId?: string,
-): Promise<void> {
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  const parsed = UpdateOutreachPatch.safeParse(patch);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
   const set: Partial<{
     label: string;
     channel: string | null;
@@ -827,11 +933,7 @@ export async function updateOutreach(
     followUpAt: string | null;
     notes: string | null;
   }> = {};
-  if (patch.label !== undefined) {
-    const label = patch.label.trim();
-    if (!label) return;
-    set.label = label;
-  }
+  if (patch.label !== undefined) set.label = patch.label.trim();
   if (patch.channel !== undefined) set.channel = orNull(patch.channel);
   if (patch.email !== undefined) set.email = orNull(patch.email);
   if (patch.phone !== undefined) set.phone = orNull(patch.phone);
@@ -841,24 +943,29 @@ export async function updateOutreach(
   if (patch.lastContacted !== undefined) set.lastContacted = patch.lastContacted || null;
   if (patch.followUpAt !== undefined) set.followUpAt = patch.followUpAt || null;
   if (patch.notes !== undefined) set.notes = orNull(patch.notes);
-  if (Object.keys(set).length === 0) return;
+  if (Object.keys(set).length === 0) return { ok: true };
 
-  await withUserRLS((tx) =>
-    tx.update(projectOutreach).set(set).where(eq(projectOutreach.id, id)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.update(projectOutreach).set(set).where(eq(projectOutreach.id, id)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 export async function removeOutreach(
   id: string,
   projectId?: string,
-): Promise<void> {
-  await withUserRLS((tx) =>
-    tx.delete(projectOutreach).where(eq(projectOutreach.id, id)),
-  );
-  if (projectId) revalidatePath(`/projects/${projectId}`);
-  revalidatePath("/");
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(id).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx.delete(projectOutreach).where(eq(projectOutreach.id, id)),
+    );
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    revalidatePath("/");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -871,13 +978,36 @@ export async function removeOutreach(
  * cascade). The `profiles` row and auth user are left intact, so the user stays
  * signed in with an empty workspace.
  */
-export async function deleteAllData(): Promise<{ ok: true }> {
+export async function deleteAllData(): Promise<ActionResult> {
   await verifySession();
-  await withUserRLS(async (tx) => {
-    await tx.delete(events);
-    await tx.delete(projects);
-    await tx.delete(connections);
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await tx.delete(events);
+      await tx.delete(projects);
+      await tx.delete(connections);
+    });
+    revalidatePath("/", "layout");
   });
-  revalidatePath("/", "layout");
-  return { ok: true };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Export — the user's real data as JSON (Settings → Export)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Gather everything the signed-in user owns, in the UI display shapes, for the
+ * Settings export buttons. Sourced from the live DAL (each reader runs through
+ * `withUserRLS`) — not the hard-coded demo dataset the export used to ship.
+ */
+export async function exportData(): Promise<{
+  connections: Connection[];
+  projects: Project[];
+  events: EventItem[];
+}> {
+  const [conns, projs, evts] = await Promise.all([
+    listConnections(),
+    listProjects(),
+    listEvents(),
+  ]);
+  return { connections: conns, projects: projs, events: evts };
 }

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import { me } from "@/lib/data";
 import { initials } from "@/lib/tone";
 import { logout } from "@/lib/auth/actions";
 import { useProfile } from "@/lib/data/hooks";
@@ -32,9 +31,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const { profile } = useProfile();
 
-  // Fall back to demo data until the profile loads (or Supabase isn't configured).
-  const name = profile?.fullName || me.name;
-  const secondary = profile?.email || me.role;
+  // Neutral placeholders until the profile loads (or Supabase isn't configured).
+  const name = profile?.fullName || "Account";
+  const secondary = profile?.email || "";
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">

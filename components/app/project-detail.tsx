@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,17 @@ import {
   unlinkParticipant,
   updateProject,
 } from "@/lib/data/actions";
+import type { ActionResult } from "@/lib/data/result";
 import { useRouter } from "next/navigation";
 import { PageBody, Section } from "@/components/app/layout-bits";
 import { TaskList } from "@/components/app/task-list";
 import { GanttTimeline } from "@/components/app/gantt-timeline";
 import { OutreachTable } from "@/components/app/outreach-table";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { popProps, useReactiveList } from "@/components/app/reactive-list";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
 import { EditRow, IconPicker, TonePicker } from "@/components/app/edit-fields";
+import { useMutationToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,9 +68,14 @@ function toForm(p: Project): Form {
   };
 }
 
+/** An optimistic operation over the project header/timeline. */
+type ProjectOp =
+  | { type: "patch"; patch: Partial<Project> }
+  | { type: "addPhase"; phase: Phase };
+
 export function ProjectDetail({
   project,
-  people: initialPeople,
+  people,
   allConnections,
 }: {
   project: Project;
@@ -75,70 +83,84 @@ export function ProjectDetail({
   allConnections: Connection[];
 }) {
   const router = useRouter();
-  const [current, setCurrent] = useState<Project>(project);
-  const [people, setPeople] = useState<Connection[]>(initialPeople);
+  // Header + timeline edits are optimistic over the *live* `project` prop, so a
+  // failed save reverts to server truth (and toasts) instead of sticking.
+  const [view, applyView] = useOptimistic(
+    project,
+    (p: Project, op: ProjectOp): Project =>
+      op.type === "patch"
+        ? { ...p, ...op.patch }
+        : { ...p, phases: [...p.phases, op.phase] },
+  );
+  // Linked people flow through the shared optimistic list: they pop in/out and
+  // auto-revert with a toast if their link/unlink action fails.
+  const peopleList = useReactiveList<Connection>(people);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Form>(() => toForm(project));
   const [addingStage, setAddingStage] = useState(false);
   const [addingPerson, setAddingPerson] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [, startTransition] = useTransition();
+  const notify = useMutationToast();
 
   const setInput =
     (k: "name" | "summary" | "description" | "statusLabel") =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const Icon = Icons[current.icon];
-  const linkedIds = new Set(people.map((p) => p.id));
+  const Icon = Icons[view.icon];
+  const linkedIds = new Set(peopleList.items.map((p) => p.id));
   const candidates = allConnections.filter((c) => !linkedIds.has(c.id));
 
   const startEdit = () => {
-    setForm(toForm(current));
+    setForm(toForm(view));
     setEditing(true);
   };
 
   const save = () => {
     const name = form.name.trim();
     if (!name) return;
-    setCurrent((p) => ({
-      ...p,
+    const patch: Partial<Project> = {
       name,
       summary: form.summary.trim(),
       description: form.description.trim(),
       icon: form.icon,
       tone: form.tone,
       status: { label: form.statusLabel.trim(), tone: form.statusTone },
-    }));
-    startTransition(() =>
-      updateProject(current.id, {
-        name,
-        summary: form.summary,
-        description: form.description,
-        statusLabel: form.statusLabel,
-        statusTone: form.statusTone,
-        icon: form.icon,
-        tone: form.tone,
-      }),
-    );
+    };
+    startTransition(async () => {
+      applyView({ type: "patch", patch });
+      notify(
+        await updateProject(view.id, {
+          name,
+          summary: form.summary,
+          description: form.description,
+          statusLabel: form.statusLabel,
+          statusTone: form.statusTone,
+          icon: form.icon,
+          tone: form.tone,
+        }),
+      );
+    });
     setEditing(false);
   };
 
-  const remove = () => {
-    startTransition(async () => {
-      await removeProject(current.id);
-      router.push("/projects");
-    });
+  /**
+   * Delete the project. Returns the result so the confirm dialog can keep itself
+   * open and surface the error on failure; navigates away only on success.
+   */
+  const remove = async (): Promise<ActionResult> => {
+    const result = await removeProject(view.id);
+    if (result.ok) router.push("/projects");
+    return result;
   };
 
   const link = (connection: Connection) => {
-    setPeople((prev) => [...prev, connection]);
-    startTransition(() => linkParticipant(current.id, connection.id));
+    peopleList.add(connection, () => linkParticipant(view.id, connection.id));
   };
 
   const unlink = (id: string) => {
-    setPeople((prev) => prev.filter((p) => p.id !== id));
-    startTransition(() => unlinkParticipant(current.id, id));
+    peopleList.remove(id, () => unlinkParticipant(view.id, id));
   };
 
   /** Create a brand-new connection and link it to this project in one step. */
@@ -150,10 +172,25 @@ export function ProjectDetail({
   }) => {
     const name = input.name.trim();
     if (!name) return;
-    startTransition(async () => {
-      const created = await createLinkedConnection(current.id, input);
-      if (created) setPeople((prev) => [...prev, created]);
-    });
+    const optimistic: Connection = {
+      id: `optimistic-${crypto.randomUUID()}`,
+      name,
+      role: input.role.trim(),
+      company: input.company.trim(),
+      avatarTone: "slate",
+      tags: [],
+      last: "",
+      rank: 0,
+      email: input.email.trim(),
+      phone: "",
+      location: "",
+      linkedin: "",
+      birthday: "",
+      note: "",
+      extraFields: [],
+      timeline: [],
+    };
+    peopleList.add(optimistic, () => createLinkedConnection(view.id, input));
     setAddingPerson(false);
   };
 
@@ -175,15 +212,17 @@ export function ProjectDetail({
       start,
       end,
     };
-    setCurrent((p) => ({ ...p, phases: [...p.phases, optimistic] }));
-    startTransition(() =>
-      createStage(current.id, {
-        label,
-        startDate: start,
-        endDate: end,
-        tone: input.tone,
-      }),
-    );
+    startTransition(async () => {
+      applyView({ type: "addPhase", phase: optimistic });
+      notify(
+        await createStage(view.id, {
+          label,
+          startDate: start,
+          endDate: end,
+          tone: input.tone,
+        }),
+      );
+    });
     setAddingStage(false);
   };
 
@@ -221,18 +260,18 @@ export function ProjectDetail({
                   <span
                     className={cn(
                       "grid size-8 shrink-0 place-items-center rounded-md",
-                      toneBg[current.tone],
+                      toneBg[view.tone],
                     )}
                   >
                     <Icon className="size-[18px]" />
                   </span>
                   <h1 className="font-heading text-lg leading-none font-bold tracking-tight uppercase">
-                    {current.name}
+                    {view.name}
                   </h1>
                 </div>
-                {current.summary ? (
+                {view.summary ? (
                   <p className="mt-1.5 text-sm text-muted-foreground">
-                    {current.summary}
+                    {view.summary}
                   </p>
                 ) : null}
               </>
@@ -251,10 +290,7 @@ export function ProjectDetail({
               </>
             ) : (
               <>
-                <StatusBadge
-                  label={current.status.label}
-                  tone={current.status.tone}
-                />
+                <StatusBadge label={view.status.label} tone={view.status.tone} />
                 <Button variant="outline" onClick={startEdit}>
                   <Icons.edit className="size-4" /> Edit
                 </Button>
@@ -322,9 +358,9 @@ export function ProjectDetail({
               />
             </EditRow>
           </div>
-        ) : current.description ? (
+        ) : view.description ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            {current.description}
+            {view.description}
           </p>
         ) : null}
 
@@ -366,33 +402,40 @@ export function ProjectDetail({
             </div>
           }
         >
-          {people.length > 0 ? (
+          {peopleList.items.length > 0 ? (
             <div className="flex flex-col gap-1.5">
-              {people.map((c) => (
-                <div
-                  key={c.id}
-                  className="group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2"
-                >
-                  <InitialsAvatar name={c.name} tone={c.avatarTone} />
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <div className="truncate text-sm font-medium">{c.name}</div>
-                    {c.role || c.company ? (
-                      <div className="truncate text-xs text-muted-foreground">
-                        {[c.role, c.company].filter(Boolean).join(" · ")}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => unlink(c.id)}
-                    aria-label={`Unlink ${c.name}`}
-                    className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              {peopleList.items.map((c) => {
+                const pop = popProps(peopleList, c.id);
+                return (
+                  <div
+                    key={c.id}
+                    onAnimationEnd={pop.onAnimationEnd}
+                    className={cn(
+                      "group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2",
+                      pop.className,
+                    )}
                   >
-                    <Icons.x className="size-4" />
-                  </Button>
-                </div>
-              ))}
+                    <InitialsAvatar name={c.name} tone={c.avatarTone} />
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <div className="truncate text-sm font-medium">{c.name}</div>
+                      {c.role || c.company ? (
+                        <div className="truncate text-xs text-muted-foreground">
+                          {[c.role, c.company].filter(Boolean).join(" · ")}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => unlink(c.id)}
+                      aria-label={`Unlink ${c.name}`}
+                      className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <Icons.x className="size-4" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
@@ -402,7 +445,7 @@ export function ProjectDetail({
         </Section>
 
         <Section title="Tasks">
-          <TaskList tasks={current.tasks} projectId={current.id} />
+          <TaskList tasks={project.tasks} projectId={view.id} />
         </Section>
 
         <Section
@@ -418,13 +461,10 @@ export function ProjectDetail({
           }
         >
           {addingStage ? (
-            <StageForm
-              onAdd={addStage}
-              onCancel={() => setAddingStage(false)}
-            />
+            <StageForm onAdd={addStage} onCancel={() => setAddingStage(false)} />
           ) : null}
-          {current.phases.length > 0 ? (
-            <GanttTimeline phases={current.phases} />
+          {view.phases.length > 0 ? (
+            <GanttTimeline phases={view.phases} />
           ) : !addingStage ? (
             <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
               No stages yet. Add one to build the Gantt chart.
@@ -434,9 +474,9 @@ export function ProjectDetail({
 
         <Section title="Outreach">
           <OutreachTable
-            projectId={current.id}
+            projectId={view.id}
             outreach={project.outreach}
-            people={people}
+            people={peopleList.items}
           />
         </Section>
       </PageBody>
@@ -454,8 +494,8 @@ export function ProjectDetail({
         description={
           <>
             Permanently delete{" "}
-            <span className="font-medium text-foreground">{current.name}</span> and
-            {" "}all of its tasks, stages, and outreach. This can&apos;t be undone.
+            <span className="font-medium text-foreground">{view.name}</span> and{" "}
+            all of its tasks, stages, and outreach. This can&apos;t be undone.
           </>
         }
         confirmLabel="Delete project"

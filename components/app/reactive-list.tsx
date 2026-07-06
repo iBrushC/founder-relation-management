@@ -9,6 +9,8 @@ import {
   useState,
   useTransition,
 } from "react";
+import type { ActionResult } from "@/lib/data/result";
+import { useToast } from "@/components/ui/toast";
 
 /**
  * Optimistic + reactive list plumbing.
@@ -32,8 +34,23 @@ type Op<T> =
   | { type: "remove"; id: string }
   | { type: "update"; item: T };
 
-/** A fire-and-forget mutation — typically a Server Action returning void. */
+/**
+ * A mutation to persist an optimistic change — typically a Server Action. It may
+ * return an `ActionResult`; a `{ ok: false }` (or a thrown error) surfaces a
+ * toast and lets the optimistic change revert. Kept permissive so callers can
+ * still pass plain fire-and-forget thunks.
+ */
 type Action = () => Promise<unknown> | unknown;
+
+/** Narrow an arbitrary action return value to a failed `ActionResult`. */
+function failedResult(value: unknown): (ActionResult & { ok: false }) | null {
+  return value !== null &&
+    typeof value === "object" &&
+    "ok" in value &&
+    (value as ActionResult).ok === false
+    ? (value as ActionResult & { ok: false })
+    : null;
+}
 
 export type ReactiveList<T> = {
   /** Rows to render: server rows + optimistic adds − rows already removed. */
@@ -83,28 +100,51 @@ export function useReactiveList<T extends Keyed>(server: T[]): ReactiveList<T> {
   const [exitingIds, setExiting] = useState<ReadonlySet<string>>(new Set());
   const removals = useRef(new Map<string, Action>());
   const [, startTransition] = useTransition();
+  const { error: toastError } = useToast();
+
+  /**
+   * Run a mutation and surface any failure. A `{ ok: false }` result or a thrown
+   * error shows a toast; because we never touched `server` on failure, the
+   * optimistic op auto-reverts once the transition settles. Returns nothing —
+   * the revert is what the UI observes.
+   */
+  const settle = useCallback(
+    async (action: Action | undefined) => {
+      try {
+        const failure = failedResult(await action?.());
+        if (failure) toastError("Couldn't save your changes", failure.error);
+      } catch {
+        toastError(
+          "Couldn't save your changes",
+          "Something went wrong. Please try again.",
+        );
+      }
+    },
+    [toastError],
+  );
 
   const add = useCallback<ReactiveList<T>["add"]>(
     (optimistic, action) => {
       setEntering((s) => new Set(s).add(optimistic.id));
       startTransition(async () => {
         apply({ type: "add", item: optimistic });
-        await action();
-        // Real row has arrived from the server; drop the temp's enter flag.
+        await settle(action);
+        // Real row has arrived (or the optimistic one is reverting); drop the
+        // temp's enter flag either way.
         setEntering((s) => without(s, optimistic.id));
       });
     },
-    [apply],
+    [apply, settle],
   );
 
   const update = useCallback<ReactiveList<T>["update"]>(
     (next, action) => {
       startTransition(async () => {
         apply({ type: "update", item: next });
-        await action();
+        await settle(action);
       });
     },
-    [apply],
+    [apply, settle],
   );
 
   const onExited = useCallback<ReactiveList<T>["onExited"]>(
@@ -116,10 +156,10 @@ export function useReactiveList<T extends Keyed>(server: T[]): ReactiveList<T> {
       setExiting((s) => without(s, id));
       startTransition(async () => {
         apply({ type: "remove", id });
-        await action?.();
+        await settle(action);
       });
     },
-    [apply],
+    [apply, settle],
   );
 
   const remove = useCallback<ReactiveList<T>["remove"]>(

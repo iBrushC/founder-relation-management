@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Icons } from "@/lib/icons";
+import type { ActionResult } from "@/lib/data/result";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,8 +21,10 @@ import {
  * Confirm/Cancel; pass `confirmPhrase` to require the user to type an exact word
  * (e.g. "DELETE") before the confirm button unlocks — used for the heavier wipes.
  *
- * `onConfirm` may be async; the button shows a pending state until it settles and
- * the dialog closes on success.
+ * `onConfirm` may be async and may return an `ActionResult`; the button shows a
+ * pending state until it settles. On success the dialog closes; on a failed
+ * result — or a thrown error — the failure is surfaced as a toast and the dialog
+ * stays open so the user can retry or cancel.
  */
 export function ConfirmDialog({
   open,
@@ -37,10 +41,11 @@ export function ConfirmDialog({
   description: React.ReactNode;
   confirmLabel?: string;
   confirmPhrase?: string;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: () => void | ActionResult | Promise<void | ActionResult>;
 }) {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
+  const { error: toastError } = useToast();
 
   const phraseOk = !confirmPhrase || typed.trim() === confirmPhrase;
 
@@ -56,9 +61,16 @@ export function ConfirmDialog({
     if (!phraseOk || busy) return;
     setBusy(true);
     try {
-      await onConfirm();
+      const result = await onConfirm();
+      if (result && result.ok === false) {
+        // Keep the dialog open so the user can retry or cancel.
+        toastError("Couldn't complete that", result.error);
+        return;
+      }
       setTyped("");
       onOpenChange(false);
+    } catch {
+      toastError("Couldn't complete that", "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }

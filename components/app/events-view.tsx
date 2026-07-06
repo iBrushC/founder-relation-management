@@ -5,10 +5,11 @@ import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection, EventItem } from "@/lib/data";
 import { removeEvent } from "@/lib/data/actions";
-import { toneInk } from "@/lib/tone";
 import { popProps, staticList } from "@/components/app/reactive-list";
 import { EventsList } from "@/components/app/list-contexts";
 import { InitialsAvatar, AvatarStack, StatusBadge } from "@/components/app/primitives";
+import { RowActions } from "@/components/app/row-actions";
+import { ListToolbar } from "@/components/app/list-toolbar";
 import {
   Table,
   TableBody,
@@ -17,8 +18,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -26,17 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { EventPanel } from "@/components/app/event-panel";
 
 /** People met at an event, resolved to their connection (guests kept as names). */
@@ -99,31 +87,25 @@ export function EventsView({
   return (
     <div className="flex flex-col gap-4">
       {showControls ? (
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative min-w-56 flex-1">
-            <Icons.search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, place, or organizer…"
-              className="h-9 pl-8"
-            />
-          </div>
-          <Select value={when} onValueChange={setWhen}>
-            <SelectTrigger className="h-9 w-40">
-              <Icons.filter className="size-4 text-muted-foreground" />
-              <SelectValue placeholder="All events" />
-            </SelectTrigger>
-            <SelectContent position="popper" align="end" className="min-w-40">
-              <SelectItem value="all">All events</SelectItem>
-              <SelectItem value="upcoming">Upcoming</SelectItem>
-              <SelectItem value="past">Past</SelectItem>
-            </SelectContent>
-          </Select>
-          <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-            {filtered.length} {filtered.length === 1 ? "event" : "events"}
-          </span>
-        </div>
+        <ListToolbar
+          query={query}
+          onQuery={setQuery}
+          placeholder="Search by name, place, or organizer…"
+          filter={
+            <Select value={when} onValueChange={setWhen}>
+              <SelectTrigger className="h-9 w-40">
+                <Icons.filter className="size-4 text-muted-foreground" />
+                <SelectValue placeholder="All events" />
+              </SelectTrigger>
+              <SelectContent position="popper" align="end" className="min-w-40">
+                <SelectItem value="all">All events</SelectItem>
+                <SelectItem value="upcoming">Upcoming</SelectItem>
+                <SelectItem value="past">Past</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+          count={`${filtered.length} ${filtered.length === 1 ? "event" : "events"}`}
+        />
       ) : null}
 
       <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -185,7 +167,14 @@ export function EventsView({
                   </TableCell>
                   <TableCell className="pr-2">
                     <RowActions
-                      onEdit={() => openPanel(e.id, "edit")}
+                      actions={[
+                        { icon: Icons.calendar, label: "Add to calendar" },
+                        {
+                          icon: Icons.edit,
+                          label: "Edit",
+                          onClick: () => openPanel(e.id, "edit"),
+                        },
+                      ]}
                       onRemove={() => list.remove(e.id, () => removeEvent(e.id))}
                     />
                   </TableCell>
@@ -217,64 +206,3 @@ export function EventsView({
   );
 }
 
-/** Frequently-used actions promoted to the row; the rest live in the menu. */
-function RowActions({
-  onEdit,
-  onRemove,
-}: {
-  onEdit: () => void;
-  onRemove: () => void;
-}) {
-  const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const handle = (fn: () => void) => (e: React.MouseEvent) => {
-    e.stopPropagation();
-    fn();
-  };
-  return (
-    <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
-      <IconAction icon={Icons.calendar} label="Add to calendar" onClick={stop} />
-      <IconAction icon={Icons.edit} label="Edit" onClick={handle(onEdit)} />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={stop}
-            aria-label="More actions"
-          >
-            <Icons.dots className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onClick={stop}>
-          <DropdownMenuItem
-            className={cn("focus:bg-destructive/10", toneInk.red)}
-            onSelect={onRemove}
-          >
-            <Icons.x className="size-4" /> Remove
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
-
-function IconAction({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: (typeof Icons)[keyof typeof Icons];
-  label: string;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={label}>
-          <Icon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}

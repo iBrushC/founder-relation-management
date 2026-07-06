@@ -1,65 +1,14 @@
--- SFRM outreach — per-project recipients (orgs/people you've messaged) with follow-up reminders.
+-- SFRM outreach — SQL-only objects for per-project outreach follow-ups.
 --
--- Hand-written twin of the Drizzle `projectOutreach` table (drizzle/schema.ts).
--- Idempotent: safe to re-run in the Supabase SQL editor or via `supabase db push`.
--- Also extends the derived `public.updates` view (defined in 0002) with pending
--- outreach follow-ups so reminders surface on the homepage feed.
+-- Drizzle is the single source of truth for the schema: the `project_outreach`
+-- table, its indexes, RLS, and policies live in drizzle/schema.ts and are
+-- created by `drizzle-kit migrate`. This file holds only what Drizzle can't
+-- manage — the `updated_at` trigger and the derived `public.updates` view (the
+-- homepage feed), defined here in full since outreach is its last source.
+-- Apply AFTER the Drizzle migrations. Every statement is idempotent.
 
 /* ------------------------------------------------------------------ */
-/*  1. Table                                                           */
-/* ------------------------------------------------------------------ */
-
--- One organization or person reached out to under a project. `follow_up_at` is
--- the reminder date (the app defaults it to a week out when a row is created).
-create table if not exists public.project_outreach (
-  id             uuid primary key default gen_random_uuid(),
-  owner_id       uuid not null references public.profiles (id) on delete cascade,
-  project_id     uuid not null references public.projects (id) on delete cascade,
-  connection_id  uuid references public.connections (id) on delete set null,  -- optional recipient
-  label          text not null,                       -- recipient name (org or person)
-  channel        text,                                -- email / linkedin / phone / other
-  status         text not null default 'Not started', -- Not started / Sent / Awaiting reply / Replied / Closed
-  last_contacted date,
-  follow_up_at   date,                                -- reminder date (defaults to +1 week at creation)
-  notes          text,
-  position       integer not null default 0,
-  created_at     timestamptz not null default now(),
-  updated_at     timestamptz not null default now()
-);
-
-/* ------------------------------------------------------------------ */
-/*  2. Indexes                                                         */
-/* ------------------------------------------------------------------ */
-
-create index if not exists project_outreach_owner_id_idx      on public.project_outreach (owner_id);
-create index if not exists project_outreach_project_id_idx    on public.project_outreach (project_id);
-create index if not exists project_outreach_connection_id_idx on public.project_outreach (connection_id);
-create index if not exists project_outreach_follow_up_at_idx  on public.project_outreach (follow_up_at);
-
-/* ------------------------------------------------------------------ */
-/*  3. RLS — owner-scoped, mirrors every other data table              */
-/* ------------------------------------------------------------------ */
-
-alter table public.project_outreach enable row level security;
-
-drop policy if exists "Owner can view own rows" on public.project_outreach;
-create policy "Owner can view own rows" on public.project_outreach
-  for select to authenticated using ((select auth.uid()) = owner_id);
-
-drop policy if exists "Owner can insert own rows" on public.project_outreach;
-create policy "Owner can insert own rows" on public.project_outreach
-  for insert to authenticated with check ((select auth.uid()) = owner_id);
-
-drop policy if exists "Owner can update own rows" on public.project_outreach;
-create policy "Owner can update own rows" on public.project_outreach
-  for update to authenticated using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
-
-drop policy if exists "Owner can delete own rows" on public.project_outreach;
-create policy "Owner can delete own rows" on public.project_outreach
-  for delete to authenticated using ((select auth.uid()) = owner_id);
-
-/* ------------------------------------------------------------------ */
-/*  4. updated_at trigger (function defined in 0002)                   */
+/*  1. updated_at trigger (handle_updated_at is defined in 0001)       */
 /* ------------------------------------------------------------------ */
 
 drop trigger if exists set_updated_at on public.project_outreach;
@@ -67,9 +16,13 @@ create trigger set_updated_at before update on public.project_outreach
   for each row execute function public.handle_updated_at();
 
 /* ------------------------------------------------------------------ */
-/*  5. Extend the derived "Updates" feed with outreach follow-ups      */
+/*  2. Derived "Updates" feed                                          */
 /* ------------------------------------------------------------------ */
 
+-- The homepage feed is sourced from the tables, not stored. security_invoker =
+-- on: the view runs with the querying user's privileges, so the base-table RLS
+-- still scopes every row to its owner. Consumers should window + order + limit
+-- (e.g. where sort_at <= current_date + 30, order by sort_at).
 create or replace view public.updates
 with (security_invoker = on) as
 

@@ -14,9 +14,9 @@ import {
   EventsList,
   ProjectsList,
 } from "@/components/app/list-contexts";
+import { EditRow } from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -39,25 +39,6 @@ import {
 /** A client-only id for the optimistic row; the real DB id replaces it on commit. */
 function tempId(): string {
   return `optimistic-${crypto.randomUUID()}`;
-}
-
-function Field({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={htmlFor} className="text-xs text-muted-foreground">
-        {label}
-      </Label>
-      {children}
-    </div>
-  );
 }
 
 export function AddConnectionDialog({
@@ -120,20 +101,20 @@ export function AddConnectionDialog({
           <DialogDescription>Someone new to keep up with.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <Field label="Name" htmlFor="c-name">
+          <EditRow label="Name" htmlFor="c-name">
             <Input id="c-name" autoFocus value={form.name} onChange={set("name")} />
-          </Field>
+          </EditRow>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Role" htmlFor="c-role">
+            <EditRow label="Role" htmlFor="c-role">
               <Input id="c-role" value={form.role} onChange={set("role")} />
-            </Field>
-            <Field label="Company" htmlFor="c-company">
+            </EditRow>
+            <EditRow label="Company" htmlFor="c-company">
               <Input id="c-company" value={form.company} onChange={set("company")} />
-            </Field>
+            </EditRow>
           </div>
-          <Field label="Email" htmlFor="c-email">
+          <EditRow label="Email" htmlFor="c-email">
             <Input id="c-email" type="email" value={form.email} onChange={set("email")} />
-          </Field>
+          </EditRow>
         </div>
         <DialogFooter>
           <DialogClose asChild>
@@ -193,16 +174,16 @@ export function AddEventDialog() {
           <DialogDescription>A mixer, demo day, or meetup.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <Field label="Name" htmlFor="e-name">
+          <EditRow label="Name" htmlFor="e-name">
             <Input id="e-name" autoFocus value={form.name} onChange={set("name")} />
-          </Field>
+          </EditRow>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Date" htmlFor="e-date">
+            <EditRow label="Date" htmlFor="e-date">
               <Input id="e-date" type="date" value={form.eventDate} onChange={set("eventDate")} />
-            </Field>
-            <Field label="Location" htmlFor="e-location">
+            </EditRow>
+            <EditRow label="Location" htmlFor="e-location">
               <Input id="e-location" value={form.location} onChange={set("location")} />
-            </Field>
+            </EditRow>
           </div>
         </div>
         <DialogFooter>
@@ -260,22 +241,22 @@ export function AddProjectDialog() {
           <DialogDescription>A venture or campaign to track.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <Field label="Name" htmlFor="p-name">
+          <EditRow label="Name" htmlFor="p-name">
             <Input
               id="p-name"
               autoFocus
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
-          </Field>
-          <Field label="Summary" htmlFor="p-summary">
+          </EditRow>
+          <EditRow label="Summary" htmlFor="p-summary">
             <Textarea
               id="p-summary"
               value={form.summary}
               onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
               className="min-h-16"
             />
-          </Field>
+          </EditRow>
         </div>
         <DialogFooter>
           <DialogClose asChild>

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "@/lib/icons";
 import { seedSampleData } from "@/lib/data/actions";
+import { useMutationToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -14,11 +15,15 @@ export function SampleDataButton() {
   const [pending, startTransition] = useTransition();
   const [done, setDone] = useState(false);
   const router = useRouter();
+  const notify = useMutationToast();
 
   function load() {
     setDone(false);
     startTransition(async () => {
-      await seedSampleData();
+      const ok = notify(await seedSampleData(), {
+        error: "Couldn't load sample data",
+      });
+      if (!ok) return;
       router.refresh();
       setDone(true);
     });

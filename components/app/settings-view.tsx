@@ -1,24 +1,24 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import { me, connections, projects } from "@/lib/data";
 import { logout, requestPasswordReset } from "@/lib/auth/actions";
 import { useProfile } from "@/lib/data/hooks";
-import { saveProfile, saveResume } from "@/lib/data/profile-actions";
+import { saveProfile } from "@/lib/data/profile-actions";
 import { profileExtras, type ResumeRef } from "@/lib/data/profile-shared";
 import { deleteAllData } from "@/lib/data/actions";
-import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/data/profiles";
 import { Section } from "@/components/app/layout-bits";
 import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
 import { SampleDataButton } from "@/components/app/sample-data-button";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { ResumeField } from "@/components/app/resume-field";
+import { ExportSection } from "@/components/app/settings-export";
+import { EditRow } from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -71,34 +71,6 @@ function Row({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
-/** A vertically-stacked label + control, used inside the About form. */
-function Field({
-  label,
-  htmlFor,
-  icon: Icon,
-  children,
-  className,
-}: {
-  label: string;
-  htmlFor?: string;
-  icon?: (typeof Icons)[keyof typeof Icons];
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
-      <Label
-        htmlFor={htmlFor}
-        className="gap-1.5 text-xs font-medium text-muted-foreground"
-      >
-        {Icon ? <Icon className="size-3.5" /> : null}
-        {label}
-      </Label>
-      {children}
     </div>
   );
 }
@@ -246,210 +218,6 @@ function IntegrationRow({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Section: Export — real client-side JSON download                  */
-/* ------------------------------------------------------------------ */
-
-function downloadJSON(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function ExportRow({
-  title,
-  description,
-  onExport,
-}: {
-  title: string;
-  description: string;
-  onExport: () => void;
-}) {
-  return (
-    <Row title={title} description={description}>
-      <Button variant="outline" size="sm" onClick={onExport}>
-        <Icons.download className="size-3.5" /> Export
-      </Button>
-    </Row>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Resume upload — real Supabase Storage upload to the `resumes` bucket */
-/* ------------------------------------------------------------------ */
-
-const RESUME_ACCEPT = ".pdf,.doc,.docx,.txt";
-
-/** Strip characters that would break a storage path segment. */
-function safeName(name: string): string {
-  return name.replace(/[^\w.\-]+/g, "_").slice(0, 200) || "resume";
-}
-
-/**
- * Uploads a resume to the private `resumes` bucket (path scoped to the user's id
- * so RLS allows it) and persists the `{ path, name }` reference to the profile
- * immediately. Viewing opens a short-lived signed URL. Remove deletes the object.
- */
-function ResumeField({
-  profileId,
-  value,
-  onChange,
-  onSaved,
-}: {
-  profileId: string | null;
-  value: ResumeRef | null;
-  onChange: (value: ResumeRef | null) => void;
-  onSaved: (profile: Profile) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<null | "upload" | "remove" | "view">(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function persist(next: ResumeRef | null) {
-    const res = await saveResume(next);
-    if (res.ok) onSaved(res.profile);
-    else setError(res.error);
-  }
-
-  async function handleFile(file: File) {
-    if (!profileId) {
-      setError("Sign in to upload a resume.");
-      return;
-    }
-    setError(null);
-    setBusy("upload");
-    try {
-      const supabase = createClient();
-      const path = `${profileId}/${Date.now()}-${safeName(file.name)}`;
-      const { error: upErr } = await supabase.storage
-        .from("resumes")
-        .upload(path, file, { upsert: false, contentType: file.type });
-      if (upErr) {
-        setError(upErr.message);
-        return;
-      }
-      // Drop the previous file so the bucket doesn't accumulate orphans.
-      if (value?.path) {
-        await supabase.storage.from("resumes").remove([value.path]);
-      }
-      const ref: ResumeRef = { path, name: file.name };
-      onChange(ref);
-      await persist(ref);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleRemove() {
-    setError(null);
-    setBusy("remove");
-    try {
-      if (value?.path) {
-        const supabase = createClient();
-        await supabase.storage.from("resumes").remove([value.path]);
-      }
-      onChange(null);
-      await persist(null);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleView() {
-    if (!value?.path) return;
-    setError(null);
-    setBusy("view");
-    try {
-      const supabase = createClient();
-      const { data, error: signErr } = await supabase.storage
-        .from("resumes")
-        .createSignedUrl(value.path, 60);
-      if (signErr || !data) {
-        setError(signErr?.message ?? "Couldn't open the resume.");
-        return;
-      }
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <input
-        ref={inputRef}
-        type="file"
-        accept={RESUME_ACCEPT}
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
-          e.target.value = ""; // allow re-selecting the same file
-        }}
-      />
-
-      {value ? (
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
-          <Icons.file className="size-4 shrink-0 text-muted-foreground" />
-          <button
-            type="button"
-            onClick={handleView}
-            disabled={busy !== null}
-            className="truncate text-sm font-medium hover:underline disabled:no-underline"
-            title="Open resume"
-          >
-            {busy === "view" ? "Opening…" : value.name}
-          </button>
-          <div className="ml-auto flex shrink-0 gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => inputRef.current?.click()}
-              disabled={busy !== null}
-            >
-              {busy === "upload" ? "Uploading…" : "Replace"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              onClick={handleRemove}
-              disabled={busy !== null}
-            >
-              {busy === "remove" ? "Removing…" : "Remove"}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          variant="outline"
-          size="sm"
-          className="self-start"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy !== null}
-        >
-          <Icons.upload className="size-3.5" />
-          {busy === "upload" ? "Uploading…" : "Upload resume"}
-        </Button>
-      )}
-
-      {error ? (
-        <span className="text-xs text-destructive">{error}</span>
-      ) : (
-        <span className="text-xs text-muted-foreground">
-          PDF, Word, or text · up to 5 MB
-        </span>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Section: About — the editable profile form                         */
 /* ------------------------------------------------------------------ */
 
@@ -466,13 +234,13 @@ function AboutSection({
   onSaved: (profile: Profile) => void;
 }) {
   const x = profileExtras(profile);
-  const email = profile?.email || me.email;
+  const email = profile?.email ?? "";
 
-  const [name, setName] = useState(profile?.fullName || me.name);
-  const [bio, setBio] = useState(x.bio ?? me.bio);
-  const [school, setSchool] = useState(x.school ?? me.school);
-  const [country, setCountry] = useState(x.country ?? me.country);
-  const [timezone, setTimezone] = useState(x.timezone ?? me.timezone);
+  const [name, setName] = useState(profile?.fullName ?? "");
+  const [bio, setBio] = useState(x.bio ?? "");
+  const [school, setSchool] = useState(x.school ?? "");
+  const [country, setCountry] = useState(x.country ?? "United States");
+  const [timezone, setTimezone] = useState(x.timezone ?? "America/Los_Angeles");
   const [resume, setResume] = useState<ResumeRef | null>(x.resume ?? null);
 
   const [saving, startSaving] = useTransition();
@@ -514,7 +282,7 @@ function AboutSection({
         </div>
 
         <div className="flex flex-col gap-4 p-4">
-          <Field label="Bio" htmlFor="bio">
+          <EditRow label="Bio" htmlFor="bio">
             <Textarea
               id="bio"
               value={bio}
@@ -522,24 +290,24 @@ function AboutSection({
               placeholder="A sentence or two about what you're building."
               className="min-h-16"
             />
-          </Field>
+          </EditRow>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Full name" htmlFor="name" icon={Icons.user}>
+            <EditRow label="Full name" htmlFor="name" icon={Icons.user}>
               <Input
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-            </Field>
-            <Field label="School / Company" htmlFor="school" icon={Icons.building}>
+            </EditRow>
+            <EditRow label="School / Company" htmlFor="school" icon={Icons.building}>
               <Input
                 id="school"
                 value={school}
                 onChange={(e) => setSchool(e.target.value)}
               />
-            </Field>
-            <Field label="Country" icon={Icons.globe}>
+            </EditRow>
+            <EditRow label="Country" icon={Icons.globe}>
               <Select value={country} onValueChange={setCountry}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -561,8 +329,8 @@ function AboutSection({
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
-            <Field label="Timezone" icon={Icons.clock}>
+            </EditRow>
+            <EditRow label="Timezone" icon={Icons.clock}>
               <Select value={timezone} onValueChange={setTimezone}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -584,17 +352,17 @@ function AboutSection({
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
+            </EditRow>
           </div>
 
-          <Field label="Resume" icon={Icons.file}>
+          <EditRow label="Resume" icon={Icons.file}>
             <ResumeField
               profileId={profile?.id ?? null}
               value={resume}
               onChange={setResume}
               onSaved={onSaved}
             />
-          </Field>
+          </EditRow>
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-border px-4 py-3">
@@ -619,7 +387,7 @@ function AboutSection({
 export function SettingsView() {
   // The signed-in user's real profile (name/email + extended fields in settings).
   const { profile, isLoading, mutate } = useProfile();
-  const email = profile?.email || me.email;
+  const email = profile?.email ?? "";
 
   // Account actions — reset password and sign out.
   const [resetting, startResetting] = useTransition();
@@ -802,27 +570,7 @@ export function SettingsView() {
       </Section>
 
       {/* ---- Export ---- */}
-      <Section title="Export">
-        <Card>
-          <ExportRow
-            title="All data"
-            description="Everything — people, projects, tasks, and notes."
-            onExport={() =>
-              downloadJSON("sfrm-export.json", { connections, projects })
-            }
-          />
-          <ExportRow
-            title="People"
-            description="All your connections and their notes."
-            onExport={() => downloadJSON("sfrm-people.json", connections)}
-          />
-          <ExportRow
-            title="Projects"
-            description="All projects with their tasks and timelines."
-            onExport={() => downloadJSON("sfrm-projects.json", projects)}
-          />
-        </Card>
-      </Section>
+      <ExportSection />
 
       {/* ---- Account ---- */}
       <Section title="Account">
@@ -898,8 +646,9 @@ export function SettingsView() {
         confirmLabel="Delete everything"
         confirmPhrase="DELETE"
         onConfirm={async () => {
-          await deleteAllData();
-          setWiped(true);
+          const result = await deleteAllData();
+          if (result.ok) setWiped(true);
+          return result;
         }}
       />
     </div>

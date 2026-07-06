@@ -17,18 +17,22 @@ import {
 import { authUid, authUsers, authenticatedRole } from "drizzle-orm/supabase";
 
 /**
- * SFRM database. Drizzle is the source of truth; each change is mirrored by a
- * hand-written migration under `supabase/migrations` so it can be applied through
- * the Supabase SQL editor as well as `drizzle-kit`.
+ * SFRM database. Drizzle is the SINGLE source of truth for the schema: the
+ * enums, tables, columns, indexes, RLS, and policies declared here are the only
+ * definition of them — generate a migration with `drizzle-kit generate` and
+ * apply it with `drizzle-kit migrate`. There is no hand-written SQL twin to keep
+ * in sync.
  *
  * Security architecture, layer 2 of 3: RLS. This is a single-tenant-per-user CRM
  * — every row is owned by exactly one auth user, and every table below carries an
  * `owner_id` so the policies can scope reads/writes to `auth.uid()`. `authUid` is
  * drizzle-orm/supabase's `(select auth.uid())`, matching the SQL policies.
  *
- * NOTE: triggers, functions, and the derived `public.updates` view live ONLY in
- * SQL (see the migrations). Drizzle manages just what is declared here and leaves
- * those objects untouched.
+ * NOTE: a few objects Drizzle does not manage live ONLY in SQL under
+ * `supabase/migrations` — the `updated_at`/auth triggers, the `handle_updated_at`
+ * / `handle_new_user` / `next_birthday` functions, the derived `public.updates`
+ * view, and the `resumes` storage bucket. Those files are applied AFTER
+ * `drizzle-kit migrate` and never redefine anything declared here.
  */
 
 /* ------------------------------------------------------------------ */

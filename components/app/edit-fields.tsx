@@ -26,19 +26,28 @@ export const TONES: Tone[] = [
   "slate",
 ];
 
-/** A labeled column wrapping any control — matches the Add-dialog field style. */
+/**
+ * A labeled column wrapping any control — the one field wrapper shared by the
+ * Add dialogs, the settings About form, and the inline edit surfaces. Pass an
+ * optional `icon` (shown before the label) or extra `className` on the column.
+ */
 export function EditRow({
   label,
   htmlFor,
+  icon: Icon,
+  className,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  icon?: (typeof Icons)[keyof typeof Icons];
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={htmlFor} className="text-xs text-muted-foreground">
+    <div className={cn("flex flex-col gap-1.5", className)}>
+      <Label htmlFor={htmlFor} className="gap-1.5 text-xs text-muted-foreground">
+        {Icon ? <Icon className="size-3.5" /> : null}
         {label}
       </Label>
       {children}

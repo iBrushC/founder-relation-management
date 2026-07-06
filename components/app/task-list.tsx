@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Task } from "@/lib/data";
@@ -12,6 +12,7 @@ import {
   updateSubtasks,
   updateTask,
 } from "@/lib/data/actions";
+import { popProps, useReactiveList } from "@/components/app/reactive-list";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,33 +41,31 @@ export function TaskList({
   tasks: Task[];
   projectId?: string;
 }) {
-  const [items, setItems] = useState(tasks);
+  // Tasks flow through the shared optimistic list: mutations apply instantly,
+  // pop in/out, and auto-revert with a toast if their server action fails.
+  const list = useReactiveList<Task>(tasks);
+  const items = list.items;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [adding, setAdding] = useState(false);
-  const [, startTransition] = useTransition();
 
   const toggle = (id: string) => {
-    const next = !items.find((t) => t.id === id)?.done;
-    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, done: next } : t)));
-    startTransition(() => toggleTask(id, next, projectId));
+    const task = items.find((t) => t.id === id);
+    if (!task) return;
+    const done = !task.done;
+    list.update({ ...task, done }, () => toggleTask(id, done, projectId));
   };
 
   const toggleSubtask = (taskId: string, subId: string) => {
-    let updated: Task["subtasks"];
-    setItems((prev) =>
-      prev.map((t) => {
-        if (t.id !== taskId) return t;
-        updated = t.subtasks?.map((s) =>
-          s.id === subId ? { ...s, done: !s.done } : s,
-        );
-        return { ...t, subtasks: updated };
-      }),
+    const task = items.find((t) => t.id === taskId);
+    const updated = task?.subtasks?.map((s) =>
+      s.id === subId ? { ...s, done: !s.done } : s,
     );
-    if (updated) {
-      startTransition(() => updateSubtasks(taskId, updated!, projectId));
-    }
+    if (!task || !updated) return;
+    list.update({ ...task, subtasks: updated }, () =>
+      updateSubtasks(taskId, updated, projectId),
+    );
   };
 
   const toggleExpanded = (id: string) =>
@@ -85,45 +84,43 @@ export function TaskList({
   const saveEdit = (id: string) => {
     const label = draft.label.trim();
     if (!label) return;
+    const task = items.find((t) => t.id === id);
+    if (!task) return;
     const dueLabel = draft.due ? formatMonthDay(draft.due) : undefined;
-    setItems((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, label, due: dueLabel, description: draft.description.trim() || undefined }
-          : t,
-      ),
-    );
-    startTransition(() =>
-      updateTask(
-        id,
-        { label, dueDate: draft.due || null, description: draft.description },
-        projectId,
-      ),
+    list.update(
+      {
+        ...task,
+        label,
+        due: dueLabel,
+        description: draft.description.trim() || undefined,
+      },
+      () =>
+        updateTask(
+          id,
+          { label, dueDate: draft.due || null, description: draft.description },
+          projectId,
+        ),
     );
     setEditingId(null);
   };
 
   const remove = (id: string) => {
-    setItems((prev) => prev.filter((t) => t.id !== id));
-    startTransition(() => removeTask(id, projectId));
+    list.remove(id, () => removeTask(id, projectId));
   };
 
   const addTask = () => {
     const label = draft.label.trim();
     if (!label) return;
     const dueLabel = draft.due ? formatMonthDay(draft.due) : undefined;
-    setItems((prev) => [
-      ...prev,
-      {
-        id: `optimistic-${crypto.randomUUID()}`,
-        label,
-        done: false,
-        due: dueLabel,
-        description: draft.description.trim() || undefined,
-        subtasks: [],
-      },
-    ]);
-    startTransition(() =>
+    const optimistic: Task = {
+      id: `optimistic-${crypto.randomUUID()}`,
+      label,
+      done: false,
+      due: dueLabel,
+      description: draft.description.trim() || undefined,
+      subtasks: [],
+    };
+    list.add(optimistic, () =>
       createTask(projectId ?? "", {
         label,
         dueDate: draft.due || null,
@@ -192,8 +189,13 @@ export function TaskList({
             );
           }
 
+          const pop = popProps(list, task.id);
           return (
-            <li key={task.id}>
+            <li
+              key={task.id}
+              onAnimationEnd={pop.onAnimationEnd}
+              className={pop.className}
+            >
               <div className="group flex items-center gap-3 px-4 py-2 transition-colors hover:bg-muted/50">
                 <Checkbox
                   checked={task.done}

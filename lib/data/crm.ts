@@ -60,22 +60,45 @@ function groupBy<T, K extends string | number, V>(
 /**
  * Assemble projects from their rows plus the child tasks/stages/participants.
  * Shared by `listProjects` and `getProject` so both build the same shape.
+ *
+ * When `projectId` is given (the single-project path) the child queries are
+ * scoped to that project so we don't fetch every one of the user's
+ * tasks/stages/participants/outreach just to filter in memory. Without it
+ * (`listProjects`) we load all children in one pass and group them, which
+ * correctly avoids an N+1 across projects.
  */
-async function assembleProjects(
-  where?: ReturnType<typeof eq>,
-): Promise<Project[]> {
+async function assembleProjects(projectId?: string): Promise<Project[]> {
   return withUserRLS(async (tx) => {
-    const projectRows = await (where
-      ? tx.select().from(projects).where(where)
-      : tx.select().from(projects).orderBy(asc(projects.createdAt)));
+    const projectRows = projectId
+      ? await tx.select().from(projects).where(eq(projects.id, projectId))
+      : await tx.select().from(projects).orderBy(asc(projects.createdAt));
     if (projectRows.length === 0) return [];
 
     const [taskRows, stageRows, participantRows, outreachRows] =
       await Promise.all([
-        tx.select().from(projectTasks).orderBy(asc(projectTasks.position)),
-        tx.select().from(projectStages).orderBy(asc(projectStages.position)),
-        tx.select().from(projectParticipants),
-        tx.select().from(projectOutreach).orderBy(asc(projectOutreach.position)),
+        tx
+          .select()
+          .from(projectTasks)
+          .where(projectId ? eq(projectTasks.projectId, projectId) : undefined)
+          .orderBy(asc(projectTasks.position)),
+        tx
+          .select()
+          .from(projectStages)
+          .where(projectId ? eq(projectStages.projectId, projectId) : undefined)
+          .orderBy(asc(projectStages.position)),
+        tx
+          .select()
+          .from(projectParticipants)
+          .where(
+            projectId ? eq(projectParticipants.projectId, projectId) : undefined,
+          ),
+        tx
+          .select()
+          .from(projectOutreach)
+          .where(
+            projectId ? eq(projectOutreach.projectId, projectId) : undefined,
+          )
+          .orderBy(asc(projectOutreach.position)),
       ]);
 
     const tasksByProject = groupBy(taskRows, (t) => t.projectId, toTask);
@@ -109,7 +132,7 @@ export async function listProjects(): Promise<Project[]> {
 
 /** A single project by id, or null if it isn't the user's / doesn't exist. */
 export async function getProject(id: string): Promise<Project | null> {
-  const [project] = await assembleProjects(eq(projects.id, id));
+  const [project] = await assembleProjects(id);
   return project ?? null;
 }
 
