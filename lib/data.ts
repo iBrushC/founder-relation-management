@@ -55,6 +55,12 @@ export type EventItem = {
   /** People met who aren't in Connections (yet). */
   metGuests?: string[];
   note: string;
+  /** URL of the event's page (Luma, Eventbrite, meetup listing…). */
+  link?: string;
+  /** True when the founder is hosting the event themselves. */
+  hostedByMe?: boolean;
+  /** Connection id of whoever invited the founder, if any. */
+  invitedById?: string | null;
   /** True for events that haven't happened yet. */
   upcoming: boolean;
   avatarTone: Tone;

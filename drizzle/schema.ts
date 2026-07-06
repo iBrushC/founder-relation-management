@@ -387,6 +387,18 @@ export const events = pgTable(
       onDelete: "set null",
     }),
     note: text(),
+    /** URL of the event's page — a Luma, Eventbrite, or meetup listing. */
+    link: text(),
+    /** True when the founder is hosting the event themselves. */
+    hostedByMe: boolean("hosted_by_me").notNull().default(false),
+    /**
+     * The connection who invited the founder, if any. Mutually exclusive with
+     * `hostedByMe` in the UI — you either host or you're invited. Set null on the
+     * connection's deletion so the event survives.
+     */
+    invitedById: uuid("invited_by_id").references(() => connections.id, {
+      onDelete: "set null",
+    }),
     avatarTone: tone("avatar_tone").notNull().default("slate"),
     ...timestamps,
   },
@@ -394,6 +406,7 @@ export const events = pgTable(
     index("events_owner_id_idx").on(t.ownerId),
     index("events_event_date_idx").on(t.eventDate),
     index("events_project_id_idx").on(t.projectId),
+    index("events_invited_by_id_idx").on(t.invitedById),
     ...ownerRls(t.ownerId),
   ],
 );

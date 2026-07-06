@@ -103,6 +103,9 @@ export const UpdateEventPatch = z.object({
   organizers: zStrList.optional(),
   metGuests: zStrList.optional(),
   note: longText.optional(),
+  link: url.optional(),
+  hostedByMe: z.boolean().optional(),
+  invitedById: zUuidOrEmpty.nullable().optional(),
   avatarTone: zTone.optional(),
 });
 

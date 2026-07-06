@@ -552,6 +552,9 @@ export async function updateEvent(
     organizers?: string[];
     metGuests?: string[];
     note?: string;
+    link?: string;
+    hostedByMe?: boolean;
+    invitedById?: string | null;
     avatarTone?: Tone;
   },
 ): Promise<ActionResult> {
@@ -569,8 +572,15 @@ export async function updateEvent(
           eventDate: patch.eventDate,
           location: orNull(patch.location),
           note: orNull(patch.note),
+          link: orNull(patch.link),
           ...(patch.organizers ? { organizers: patch.organizers } : {}),
           ...(patch.metGuests ? { metGuests: patch.metGuests } : {}),
+          ...(patch.hostedByMe !== undefined
+            ? { hostedByMe: patch.hostedByMe }
+            : {}),
+          ...(patch.invitedById !== undefined
+            ? { invitedById: patch.invitedById || null }
+            : {}),
           ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
         })
         .where(eq(events.id, id)),

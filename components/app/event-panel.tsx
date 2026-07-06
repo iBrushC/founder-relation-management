@@ -12,6 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -67,10 +74,17 @@ function MetRow({
   );
 }
 
+/** Sentinel `host` values that aren't a connection id. */
+const HOST_NONE = "__none__";
+const HOST_ME = "__me__";
+
 type Form = {
   name: string;
   date: string;
   location: string;
+  link: string;
+  /** HOST_NONE, HOST_ME, or a connection id (whoever invited you). */
+  host: string;
   organizers: string[];
   metGuests: string[];
   note: string;
@@ -82,6 +96,8 @@ function toForm(e: EventItem): Form {
     name: e.name,
     date: e.date ?? "",
     location: e.where,
+    link: e.link ?? "",
+    host: e.hostedByMe ? HOST_ME : (e.invitedById ?? HOST_NONE),
     organizers: e.organizers,
     metGuests: e.metGuests ?? [],
     note: e.note,
@@ -136,9 +152,14 @@ function PanelBody({
   const [form, setForm] = useState<Form>(() => toForm(event));
 
   const setInput =
-    (k: "name" | "date" | "location") =>
+    (k: "name" | "date" | "location" | "link") =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Connections, alphabetized, offered as "who invited you" choices.
+  const people = Object.values(connectionsById).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   const startEdit = () => {
     setForm(toForm(current));
@@ -148,6 +169,10 @@ function PanelBody({
   const save = () => {
     const name = form.name.trim();
     if (!name || !form.date) return;
+    const link = form.link.trim();
+    const hostedByMe = form.host === HOST_ME;
+    const invitedById =
+      form.host === HOST_ME || form.host === HOST_NONE ? null : form.host;
     const next: EventItem = {
       ...current,
       name,
@@ -158,6 +183,9 @@ function PanelBody({
       organizers: form.organizers,
       metGuests: form.metGuests,
       note: form.note.trim(),
+      link: link || undefined,
+      hostedByMe,
+      invitedById,
       avatarTone: form.avatarTone,
     };
     setCurrent(next);
@@ -169,6 +197,9 @@ function PanelBody({
         organizers: form.organizers,
         metGuests: form.metGuests,
         note: form.note,
+        link,
+        hostedByMe,
+        invitedById,
         avatarTone: form.avatarTone,
       });
     if (list) list.update(next, action);
@@ -180,6 +211,9 @@ function PanelBody({
     .map((id) => connectionsById[id])
     .filter(Boolean);
   const guests = current.metGuests ?? [];
+  const invitedBy = current.invitedById
+    ? connectionsById[current.invitedById]
+    : undefined;
 
   return (
     <>
@@ -233,6 +267,35 @@ function PanelBody({
                 />
               </EditRow>
             </div>
+            <EditRow label="Event page" htmlFor="e-link">
+              <Input
+                id="e-link"
+                type="url"
+                inputMode="url"
+                value={form.link}
+                onChange={setInput("link")}
+                placeholder="https://lu.ma/…"
+              />
+            </EditRow>
+            <EditRow label="Host / invited by">
+              <Select
+                value={form.host}
+                onValueChange={(host) => setForm((f) => ({ ...f, host }))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={HOST_NONE}>No one in particular</SelectItem>
+                  <SelectItem value={HOST_ME}>I&rsquo;m hosting</SelectItem>
+                  {people.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      Invited by {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </EditRow>
             <EditRow label="Organizers">
               <ChipInput
                 value={form.organizers}
@@ -277,6 +340,24 @@ function PanelBody({
                 {current.organizers.length > 0 ? (
                   <Field icon={Icons.users}>
                     {current.organizers.join(" · ")}
+                  </Field>
+                ) : null}
+                {current.hostedByMe ? (
+                  <Field icon={Icons.star}>You&rsquo;re hosting</Field>
+                ) : invitedBy ? (
+                  <Field icon={Icons.user}>Invited by {invitedBy.name}</Field>
+                ) : null}
+                {current.link ? (
+                  <Field icon={Icons.link}>
+                    <a
+                      href={current.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      Event page
+                      <Icons.arrowUpRight className="size-3.5" />
+                    </a>
                   </Field>
                 ) : null}
               </div>
