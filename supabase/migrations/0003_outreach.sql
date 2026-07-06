@@ -1,4 +1,4 @@
--- SFRM outreach — per-project campaigns to track messages and follow-up reminders.
+-- SFRM outreach — per-project recipients (orgs/people you've messaged) with follow-up reminders.
 --
 -- Hand-written twin of the Drizzle `projectOutreach` table (drizzle/schema.ts).
 -- Idempotent: safe to re-run in the Supabase SQL editor or via `supabase db push`.
@@ -9,14 +9,14 @@
 /*  1. Table                                                           */
 /* ------------------------------------------------------------------ */
 
--- One outreach campaign/thread under a project. `follow_up_at` is the reminder
--- date (the app defaults it to a week out when a campaign is created).
+-- One organization or person reached out to under a project. `follow_up_at` is
+-- the reminder date (the app defaults it to a week out when a row is created).
 create table if not exists public.project_outreach (
   id             uuid primary key default gen_random_uuid(),
   owner_id       uuid not null references public.profiles (id) on delete cascade,
   project_id     uuid not null references public.projects (id) on delete cascade,
   connection_id  uuid references public.connections (id) on delete set null,  -- optional recipient
-  label          text not null,                       -- campaign name
+  label          text not null,                       -- recipient name (org or person)
   channel        text,                                -- email / linkedin / phone / other
   status         text not null default 'Not started', -- Not started / Sent / Awaiting reply / Replied / Closed
   last_contacted date,

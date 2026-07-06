@@ -847,7 +847,7 @@ export function SettingsView() {
         description={
           <>
             This permanently deletes every connection, project, task, event, and
-            outreach campaign in your workspace. Your account stays active, but the
+            outreach record in your workspace. Your account stays active, but the
             data can&apos;t be recovered.
           </>
         }

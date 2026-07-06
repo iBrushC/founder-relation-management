@@ -16,6 +16,7 @@ import {
   projects,
   type ConnectionNote,
   type EventCategory,
+  type ExtraField,
   type Interaction,
   type Subtask,
   type Tag,
@@ -118,12 +119,14 @@ export async function seedSampleData(): Promise<{ ok: true }> {
           email: c.email || null,
           phone: c.phone || null,
           location: c.location || null,
+          linkedin: c.linkedin || null,
           birthday: monthDayToIso(c.birthday, BIRTH_YEAR),
           tags: c.tags,
           interactions: c.timeline,
           notes: c.note
             ? [{ id: randomUUID(), body: c.note, createdAt: nowIso }]
             : [],
+          extraFields: c.extraFields,
         })
         .returning({ id: connections.id });
       idBySlug.set(c.id, row.id);
@@ -186,6 +189,9 @@ export async function seedSampleData(): Promise<{ ok: true }> {
           connectionId: o.connectionId ? idBySlug.get(o.connectionId) ?? null : null,
           label: o.label,
           channel: o.channel || null,
+          email: o.email || null,
+          phone: o.phone || null,
+          website: o.website || null,
           status: o.status,
           lastContacted: o.lastContacted || null,
           followUpAt: o.followUpAt || null,
@@ -363,9 +369,11 @@ export async function updateConnection(
     email?: string;
     phone?: string;
     location?: string;
+    linkedin?: string;
     birthday?: string | null;
     tags?: Tag[];
     avatarTone?: Tone;
+    extraFields?: ExtraField[];
   },
 ): Promise<void> {
   const name = patch.name.trim();
@@ -381,9 +389,11 @@ export async function updateConnection(
         email: orNull(patch.email),
         phone: orNull(patch.phone),
         location: orNull(patch.location),
+        linkedin: orNull(patch.linkedin),
         birthday: patch.birthday ?? null,
         ...(patch.tags ? { tags: patch.tags } : {}),
         ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
+        ...(patch.extraFields ? { extraFields: patch.extraFields } : {}),
       })
       .where(eq(connections.id, id)),
   );
@@ -732,7 +742,7 @@ export async function createStage(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Project outreach (campaigns + follow-up reminders)                 */
+/*  Project outreach (recipients + follow-up reminders)               */
 /* ------------------------------------------------------------------ */
 
 /** ISO date `days` from today, e.g. the default one-week follow-up reminder. */
@@ -741,12 +751,15 @@ function plusDaysIso(days: number): string {
   return isoOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() + days));
 }
 
-/** Append an outreach campaign to a project. Defaults the follow-up to +1 week. */
+/** Add an outreach recipient to a project. Defaults the follow-up to +1 week. */
 export async function createOutreach(
   projectId: string,
   input: {
     label: string;
     channel?: string;
+    email?: string;
+    phone?: string;
+    website?: string;
     status?: OutreachStatus;
     connectionId?: string | null;
     lastContacted?: string | null;
@@ -769,6 +782,9 @@ export async function createOutreach(
       connectionId: input.connectionId || null,
       label,
       channel: orNull(input.channel),
+      email: orNull(input.email),
+      phone: orNull(input.phone),
+      website: orNull(input.website),
       status: input.status ?? "Not started",
       lastContacted: input.lastContacted || null,
       // `undefined` → default a week out; an empty string → no reminder.
@@ -782,12 +798,15 @@ export async function createOutreach(
   revalidatePath("/");
 }
 
-/** Edit an outreach campaign's fields. Only provided keys are changed. */
+/** Edit an outreach recipient's fields. Only provided keys are changed. */
 export async function updateOutreach(
   id: string,
   patch: {
     label?: string;
     channel?: string;
+    email?: string;
+    phone?: string;
+    website?: string;
     status?: OutreachStatus;
     connectionId?: string | null;
     lastContacted?: string | null;
@@ -799,6 +818,9 @@ export async function updateOutreach(
   const set: Partial<{
     label: string;
     channel: string | null;
+    email: string | null;
+    phone: string | null;
+    website: string | null;
     status: OutreachStatus;
     connectionId: string | null;
     lastContacted: string | null;
@@ -811,6 +833,9 @@ export async function updateOutreach(
     set.label = label;
   }
   if (patch.channel !== undefined) set.channel = orNull(patch.channel);
+  if (patch.email !== undefined) set.email = orNull(patch.email);
+  if (patch.phone !== undefined) set.phone = orNull(patch.phone);
+  if (patch.website !== undefined) set.website = orNull(patch.website);
   if (patch.status !== undefined) set.status = patch.status;
   if (patch.connectionId !== undefined) set.connectionId = patch.connectionId || null;
   if (patch.lastContacted !== undefined) set.lastContacted = patch.lastContacted || null;

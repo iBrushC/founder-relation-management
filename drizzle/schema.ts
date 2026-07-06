@@ -71,6 +71,8 @@ export type Tag = { label: string; tone: Tone };
 export type Interaction = { label: string; when: string };
 /** A free-form note on a connection. Stored inline; never queried individually. */
 export type ConnectionNote = { id: string; body: string; createdAt: string };
+/** A free-form key/value detail beyond a connection's fixed contact fields. */
+export type ExtraField = { label: string; value: string };
 /** A checklist item nested under a task. */
 export type Subtask = { id: string; label: string; done: boolean };
 
@@ -178,12 +180,16 @@ export const connections = pgTable(
     email: text(),
     phone: text(),
     location: text(),
+    /** Full LinkedIn profile URL. */
+    linkedin: text(),
     /** Month/day matter for birthday reminders; the year may be a placeholder. */
     birthday: date(),
     tags: jsonb().$type<Tag[]>().notNull().default([]),
     /** The interaction timeline (most-recent first). */
     interactions: jsonb().$type<Interaction[]>().notNull().default([]),
     notes: jsonb().$type<ConnectionNote[]>().notNull().default([]),
+    /** Free-form key/value details beyond the fixed contact fields. */
+    extraFields: jsonb("extra_fields").$type<ExtraField[]>().notNull().default([]),
     ...timestamps,
   },
   (t) => [
@@ -304,14 +310,15 @@ export const projectParticipants = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
-/*  project_outreach — campaigns/messages with follow-up reminders     */
+/*  project_outreach — recipients/messages with follow-up reminders    */
 /* ------------------------------------------------------------------ */
 
 /**
- * An outreach campaign under a project — e.g. a fundraising thread or a batch of
- * intro messages. `followUpAt` is a reminder date (the UI defaults it to a week
- * out); pending follow-ups surface in the homepage `updates` feed. Optionally
- * tied to the connection being contacted.
+ * One organization or person you've reached out to under a project — e.g. an
+ * investor you emailed or a lead you DM'd. `label` is the recipient's name;
+ * `followUpAt` is a reminder date (the UI defaults it to a week out) and pending
+ * follow-ups surface in the homepage `updates` feed. Optionally tied to the
+ * connection being contacted, though outreach targets often aren't connections.
  */
 export const projectOutreach = pgTable(
   "project_outreach",
@@ -327,6 +334,12 @@ export const projectOutreach = pgTable(
     label: text().notNull(),
     /** Free-text channel, e.g. "email", "linkedin", "phone". */
     channel: text(),
+    /** Recipient's email address, if known. */
+    email: text(),
+    /** Recipient's phone number, if known. */
+    phone: text(),
+    /** Recipient's website URL, if known. */
+    website: text(),
     /** Pipeline status: Not started / Sent / Awaiting reply / Replied / Closed. */
     status: text().notNull().default("Not started"),
     lastContacted: date("last_contacted"),

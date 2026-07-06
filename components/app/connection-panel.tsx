@@ -5,7 +5,13 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
-import type { Connection, Interaction, Tag as TagType, Tone } from "@/lib/data";
+import type {
+  Connection,
+  ExtraField,
+  Interaction,
+  Tag as TagType,
+  Tone,
+} from "@/lib/data";
 import { formatMonthDay, monthDayToIso } from "@/lib/data/format";
 import {
   logInteraction,
@@ -15,7 +21,12 @@ import {
 } from "@/lib/data/actions";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import { ConnectionsList } from "@/components/app/list-contexts";
-import { EditRow, TagEditor, TonePicker } from "@/components/app/edit-fields";
+import {
+  EditRow,
+  KeyValueEditor,
+  TagEditor,
+  TonePicker,
+} from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,6 +44,14 @@ export type { ProjectLink };
 
 /** Placeholder year used when storing a birthday (only month/day is shown). */
 const BIRTH_YEAR = 2000;
+
+/** Show a LinkedIn URL compactly — drop the scheme, `www.`, and trailing slash. */
+function prettyLinkedin(url: string): string {
+  return url
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "");
+}
 
 function Field({
   icon: Icon,
@@ -77,11 +96,13 @@ type Form = {
   email: string;
   phone: string;
   location: string;
+  linkedin: string;
   /** ISO date (YYYY-MM-DD) or "" — bound to a date input. */
   birthday: string;
   tags: TagType[];
   avatarTone: Tone;
   note: string;
+  extraFields: ExtraField[];
 };
 
 function toForm(c: Connection): Form {
@@ -92,10 +113,12 @@ function toForm(c: Connection): Form {
     email: c.email,
     phone: c.phone,
     location: c.location,
+    linkedin: c.linkedin,
     birthday: c.birthday === "—" ? "" : monthDayToIso(c.birthday, BIRTH_YEAR) ?? "",
     tags: c.tags,
     avatarTone: c.avatarTone,
     note: c.note,
+    extraFields: c.extraFields,
   };
 }
 
@@ -164,7 +187,7 @@ export function ConnectionDetailInline({
   onClose: () => void;
 }) {
   return (
-    <div className="sfrm-slide-in relative flex max-h-[calc(100vh-11rem)] flex-col overflow-hidden rounded-md border border-border bg-card">
+    <div className="sfrm-slide-in relative flex max-h-[calc(100vh-6rem)] flex-col overflow-hidden rounded-md border border-border bg-card">
       <Button
         variant="ghost"
         size="icon-sm"
@@ -215,6 +238,7 @@ function PanelBody({
   const [form, setForm] = useState<Form>(() => toForm(connection));
   const [logOpen, setLogOpen] = useState(initialLogOpen);
   const [logText, setLogText] = useState("");
+  const [extraOpen, setExtraOpen] = useState(false);
 
   const setField =
     <K extends keyof Form>(k: K) =>
@@ -240,6 +264,9 @@ function PanelBody({
     const name = form.name.trim();
     if (!name) return;
     const birthday = form.birthday || null;
+    const extraFields = form.extraFields
+      .map((f) => ({ label: f.label.trim(), value: f.value.trim() }))
+      .filter((f) => f.label && f.value);
     const next: Connection = {
       ...current,
       name,
@@ -248,10 +275,12 @@ function PanelBody({
       email: form.email.trim(),
       phone: form.phone.trim(),
       location: form.location.trim(),
+      linkedin: form.linkedin.trim(),
       birthday: birthday ? formatMonthDay(birthday) : "—",
       tags: form.tags,
       avatarTone: form.avatarTone,
       note: form.note.trim(),
+      extraFields,
     };
     const noteChanged = form.note.trim() !== current.note;
     persist(next, async () => {
@@ -262,9 +291,11 @@ function PanelBody({
         email: form.email,
         phone: form.phone,
         location: form.location,
+        linkedin: form.linkedin,
         birthday,
         tags: form.tags,
         avatarTone: form.avatarTone,
+        extraFields,
       });
       if (noteChanged) await updateConnectionNote(current.id, form.note);
     });
@@ -321,7 +352,7 @@ function PanelBody({
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
         {editing ? (
           <>
             <EditRow label="Avatar color">
@@ -377,6 +408,16 @@ function PanelBody({
                 onChange={setInput("location")}
               />
             </EditRow>
+            <EditRow label="LinkedIn" htmlFor="c-linkedin">
+              <Input
+                id="c-linkedin"
+                type="url"
+                inputMode="url"
+                value={form.linkedin}
+                onChange={setInput("linkedin")}
+                placeholder="https://linkedin.com/in/…"
+              />
+            </EditRow>
             <EditRow label="Tags">
               <TagEditor
                 value={form.tags}
@@ -394,6 +435,12 @@ function PanelBody({
                 className="min-h-20"
               />
             </EditRow>
+            <EditRow label="Additional information">
+              <KeyValueEditor
+                value={form.extraFields}
+                onChange={setField("extraFields")}
+              />
+            </EditRow>
           </>
         ) : (
           <>
@@ -408,12 +455,25 @@ function PanelBody({
                 {current.location ? (
                   <Field icon={Icons.pin}>{current.location}</Field>
                 ) : null}
+                {current.linkedin ? (
+                  <Field icon={Icons.linkedin}>
+                    <a
+                      href={current.linkedin}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {prettyLinkedin(current.linkedin)}
+                    </a>
+                  </Field>
+                ) : null}
                 {current.birthday && current.birthday !== "—" ? (
                   <Field icon={Icons.cake}>Birthday · {current.birthday}</Field>
                 ) : null}
                 {!current.email &&
                 !current.phone &&
                 !current.location &&
+                !current.linkedin &&
                 (!current.birthday || current.birthday === "—") ? (
                   <p className="text-sm text-muted-foreground">
                     No contact details yet.
@@ -454,6 +514,42 @@ function PanelBody({
                 <p className="text-sm text-muted-foreground">No notes yet.</p>
               )}
             </Block>
+
+            {current.extraFields.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setExtraOpen((o) => !o)}
+                  aria-expanded={extraOpen}
+                  className="flex cursor-pointer items-center justify-between gap-2 text-left"
+                >
+                  <span className="eyebrow">
+                    Additional information · {current.extraFields.length}
+                  </span>
+                  <Icons.chevronRight
+                    className={cn(
+                      "size-4 text-muted-foreground transition-transform",
+                      extraOpen && "rotate-90",
+                    )}
+                  />
+                </button>
+                {extraOpen ? (
+                  <dl className="flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border">
+                    {current.extraFields.map((f, i) => (
+                      <div
+                        key={`${f.label}-${i}`}
+                        className="flex flex-col gap-0.5 px-3 py-2"
+                      >
+                        <dt className="text-[11px] text-muted-foreground">
+                          {f.label}
+                        </dt>
+                        <dd className="text-sm break-words">{f.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </div>
+            ) : null}
 
             <Block
               title="Recent"

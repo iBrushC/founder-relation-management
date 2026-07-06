@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { outreachStatusTone } from "@/lib/tone";
@@ -16,6 +16,7 @@ import {
   removeOutreach,
   updateOutreach,
 } from "@/lib/data/actions";
+import { popProps, useReactiveList } from "@/components/app/reactive-list";
 import { StatusBadge, InitialsAvatar } from "@/components/app/primitives";
 import { EditRow } from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
@@ -40,12 +41,28 @@ function todayIso(): string {
   return plusDaysIso(0);
 }
 
+/** Ensure a website value is a navigable URL (prepend https:// if bare). */
+function websiteHref(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/** Show a website compactly — drop the scheme, `www.`, and trailing slash. */
+function prettyWebsite(url: string): string {
+  return url
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "");
+}
+
 const NONE = "__none__";
 
 type Draft = {
   label: string;
   connectionId: string;
   channel: string;
+  email: string;
+  phone: string;
+  website: string;
   status: OutreachStatus;
   lastContacted: string;
   followUpAt: string;
@@ -57,6 +74,9 @@ function emptyDraft(): Draft {
     label: "",
     connectionId: NONE,
     channel: "Email",
+    email: "",
+    phone: "",
+    website: "",
     status: "Not started",
     lastContacted: "",
     followUpAt: plusDaysIso(7), // default reminder one week out
@@ -69,6 +89,9 @@ function draftFrom(o: Outreach): Draft {
     label: o.label,
     connectionId: o.connectionId ?? NONE,
     channel: o.channel,
+    email: o.email,
+    phone: o.phone,
+    website: o.website,
     status: o.status,
     lastContacted: o.lastContacted,
     followUpAt: o.followUpAt,
@@ -77,9 +100,15 @@ function draftFrom(o: Outreach): Draft {
 }
 
 /**
- * Outreach campaigns for a project — messages/campaigns with a follow-up reminder
- * date. Renders below Tasks and the Timeline on the project page. Edits are
- * optimistic; each change persists in the background via the outreach actions.
+ * Outreach for a project — one row per organization or person you've reached out
+ * to, each with a follow-up reminder date so nobody goes cold. Not connections:
+ * these are project-scoped and may never turn into one. Renders below Tasks and
+ * the Timeline on the project page.
+ *
+ * Add/remove run through the same optimistic `useReactiveList` base as the
+ * Connections table, so rows pop in and out with the same animation; edits are
+ * applied in place. Each change persists in the background via the outreach
+ * actions.
  */
 export function OutreachTable({
   projectId,
@@ -90,11 +119,11 @@ export function OutreachTable({
   outreach: Outreach[];
   people: Connection[];
 }) {
-  const [items, setItems] = useState<Outreach[]>(outreach);
+  const list = useReactiveList<Outreach>(outreach);
+  const items = list.items;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
 
   const nameOf = (id: string | null) =>
     id ? people.find((p) => p.id === id) ?? null : null;
@@ -102,6 +131,9 @@ export function OutreachTable({
   const toInput = (d: Draft) => ({
     label: d.label.trim(),
     channel: d.channel.trim(),
+    email: d.email.trim(),
+    phone: d.phone.trim(),
+    website: d.website.trim(),
     status: d.status,
     connectionId: d.connectionId === NONE ? null : d.connectionId,
     lastContacted: d.lastContacted || "",
@@ -117,13 +149,15 @@ export function OutreachTable({
       label: input.label,
       connectionId: input.connectionId,
       channel: input.channel,
+      email: input.email,
+      phone: input.phone,
+      website: input.website,
       status: input.status,
       lastContacted: input.lastContacted,
       followUpAt: input.followUpAt,
       notes: input.notes,
     };
-    setItems((prev) => [...prev, optimistic]);
-    startTransition(() => createOutreach(projectId, input));
+    list.add(optimistic, () => createOutreach(projectId, input));
     setDraft(emptyDraft());
     setAdding(false);
   };
@@ -131,16 +165,16 @@ export function OutreachTable({
   const saveEdit = (id: string) => {
     const input = toInput(draft);
     if (!input.label) return;
-    setItems((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, ...input } : o)),
+    const current = items.find((o) => o.id === id);
+    if (!current) return;
+    list.update({ ...current, ...input }, () =>
+      updateOutreach(id, input, projectId),
     );
-    startTransition(() => updateOutreach(id, input, projectId));
     setEditingId(null);
   };
 
   const remove = (id: string) => {
-    setItems((prev) => prev.filter((o) => o.id !== id));
-    startTransition(() => removeOutreach(id, projectId));
+    list.remove(id, () => removeOutreach(id, projectId));
   };
 
   const startEdit = (o: Outreach) => {
@@ -153,7 +187,7 @@ export function OutreachTable({
     <div className="overflow-hidden rounded-md border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <span className="text-xs tabular-nums text-muted-foreground">
-          {items.length} {items.length === 1 ? "campaign" : "campaigns"}
+          {items.length} {items.length === 1 ? "recipient" : "recipients"}
         </span>
         <Button
           variant="ghost"
@@ -165,7 +199,7 @@ export function OutreachTable({
             setEditingId(null);
           }}
         >
-          <Icons.plus className="size-3.5" /> New campaign
+          <Icons.plus className="size-3.5" /> New outreach
         </Button>
       </div>
 
@@ -176,14 +210,14 @@ export function OutreachTable({
           people={people}
           onSubmit={add}
           onCancel={() => setAdding(false)}
-          submitLabel="Add campaign"
+          submitLabel="Add outreach"
         />
       ) : null}
 
       {/* Column header (hidden on narrow screens) */}
       {items.length > 0 ? (
         <div className="hidden items-center gap-3 border-b border-border px-4 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:flex">
-          <span className="flex-1">Campaign</span>
+          <span className="flex-1">Recipient</span>
           <span className="w-32">Contact</span>
           <span className="w-28">Status</span>
           <span className="w-28">Follow-up</span>
@@ -214,11 +248,16 @@ export function OutreachTable({
             o.followUpAt < todayIso() &&
             o.status !== "Replied" &&
             o.status !== "Closed";
+          const pop = popProps(list, o.id);
 
           return (
             <li
               key={o.id}
-              className="group flex flex-col gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:gap-3"
+              onAnimationEnd={pop.onAnimationEnd}
+              className={cn(
+                "group flex flex-col gap-2 px-4 py-2.5 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:gap-3",
+                pop.className,
+              )}
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-sm font-medium">
@@ -229,6 +268,39 @@ export function OutreachTable({
                     </span>
                   ) : null}
                 </div>
+                {o.email || o.phone || o.website ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    {o.email ? (
+                      <a
+                        href={`mailto:${o.email}`}
+                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                      >
+                        <Icons.mail className="size-3 shrink-0" />
+                        <span className="truncate">{o.email}</span>
+                      </a>
+                    ) : null}
+                    {o.phone ? (
+                      <a
+                        href={`tel:${o.phone.replace(/[^\d+]/g, "")}`}
+                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                      >
+                        <Icons.phone className="size-3 shrink-0" />
+                        <span className="truncate">{o.phone}</span>
+                      </a>
+                    ) : null}
+                    {o.website ? (
+                      <a
+                        href={websiteHref(o.website)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                      >
+                        <Icons.globe className="size-3 shrink-0" />
+                        <span className="truncate">{prettyWebsite(o.website)}</span>
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
                 {o.notes ? (
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {o.notes}
@@ -277,7 +349,7 @@ export function OutreachTable({
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => startEdit(o)}
-                  aria-label="Edit campaign"
+                  aria-label="Edit outreach"
                 >
                   <Icons.edit className="size-4" />
                 </Button>
@@ -285,7 +357,7 @@ export function OutreachTable({
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => remove(o.id)}
-                  aria-label="Delete campaign"
+                  aria-label="Delete outreach"
                 >
                   <Icons.x className="size-4" />
                 </Button>
@@ -296,7 +368,8 @@ export function OutreachTable({
 
         {items.length === 0 && !adding ? (
           <li className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No outreach yet. Track a campaign to get follow-up reminders.
+            No outreach yet. Track who you&rsquo;ve reached out to for weekly
+            follow-up reminders.
           </li>
         ) : null}
       </ul>
@@ -304,7 +377,7 @@ export function OutreachTable({
   );
 }
 
-/** Shared add/edit form for an outreach campaign. */
+/** Shared add/edit form for a single outreach recipient. */
 function OutreachForm({
   draft,
   setDraft,
@@ -327,13 +400,13 @@ function OutreachForm({
 
   return (
     <div className="flex flex-col gap-4 border-b border-border bg-muted/30 px-4 py-4">
-      <EditRow label="Campaign" htmlFor="o-label">
+      <EditRow label="Recipient" htmlFor="o-label">
         <Input
           id="o-label"
           autoFocus
           value={draft.label}
           onChange={(e) => set("label")(e.target.value)}
-          placeholder="e.g. Pre-seed investor round"
+          placeholder="Company or person, e.g. Beacon Capital"
           className="h-8"
         />
       </EditRow>
@@ -363,6 +436,39 @@ function OutreachForm({
             value={draft.channel}
             onChange={(e) => set("channel")(e.target.value)}
             placeholder="Email, LinkedIn…"
+            className="h-9"
+          />
+        </EditRow>
+        <EditRow label="Email" htmlFor="o-email">
+          <Input
+            id="o-email"
+            type="email"
+            inputMode="email"
+            value={draft.email}
+            onChange={(e) => set("email")(e.target.value)}
+            placeholder="name@company.com"
+            className="h-9"
+          />
+        </EditRow>
+        <EditRow label="Phone" htmlFor="o-phone">
+          <Input
+            id="o-phone"
+            type="tel"
+            inputMode="tel"
+            value={draft.phone}
+            onChange={(e) => set("phone")(e.target.value)}
+            placeholder="+1 (555) 000-0000"
+            className="h-9"
+          />
+        </EditRow>
+        <EditRow label="Website" htmlFor="o-website">
+          <Input
+            id="o-website"
+            type="url"
+            inputMode="url"
+            value={draft.website}
+            onChange={(e) => set("website")(e.target.value)}
+            placeholder="company.com"
             className="h-9"
           />
         </EditRow>

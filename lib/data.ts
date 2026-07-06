@@ -13,6 +13,9 @@ export type Tag = { label: string; tone: Tone };
 
 export type Interaction = { label: string; when: string };
 
+/** A free-form key/value pair kept under a connection's "additional information". */
+export type ExtraField = { label: string; value: string };
+
 export type Connection = {
   id: string;
   name: string;
@@ -27,8 +30,12 @@ export type Connection = {
   email: string;
   phone: string;
   location: string;
+  /** Full LinkedIn profile URL (or "" when unset). */
+  linkedin: string;
   birthday: string;
   note: string;
+  /** Extra key/value details beyond the fixed contact fields. */
+  extraFields: ExtraField[];
   timeline: Interaction[];
 };
 
@@ -94,7 +101,7 @@ export type Phase = {
   end: string;
 };
 
-/** Pipeline states an outreach campaign moves through, in order. */
+/** Pipeline states a single outreach thread moves through, in order. */
 export const OUTREACH_STATUSES = [
   "Not started",
   "Sent",
@@ -104,14 +111,25 @@ export const OUTREACH_STATUSES = [
 ] as const;
 export type OutreachStatus = (typeof OUTREACH_STATUSES)[number];
 
-/** A campaign/message thread under a project, with a follow-up reminder. */
+/**
+ * One organization or person you've reached out to under a project, with a
+ * follow-up reminder so it doesn't go cold. Project-scoped and distinct from
+ * connections — an outreach target may never become one.
+ */
 export type Outreach = {
   id: string;
+  /** Who you reached out to — a company or person name. */
   label: string;
-  /** Optional recipient connection id. */
+  /** Optional link to this recipient's connection, if they're a saved one. */
   connectionId: string | null;
   /** Free-text channel, e.g. "Email", "LinkedIn". */
   channel: string;
+  /** Recipient's email address, or "" if unknown. */
+  email: string;
+  /** Recipient's phone number, or "" if unknown. */
+  phone: string;
+  /** Recipient's website URL, or "" if unknown. */
+  website: string;
   status: OutreachStatus;
   /** ISO date of last contact, or "" if never. */
   lastContacted: string;
@@ -166,8 +184,13 @@ export const connections: Connection[] = [
     email: "priya@northwind.co",
     phone: "+1 (415) 555-0142",
     location: "San Francisco, CA",
+    linkedin: "https://www.linkedin.com/in/priya-raman",
     birthday: "Mar 22",
     note: "Met at the Founders mixer. Offered to review our onboarding flow — strong on B2B design systems. Warm and fast over text.",
+    extraFields: [
+      { label: "How we met", value: "Founders mixer, June 2025" },
+      { label: "Preferred contact", value: "Text / iMessage" },
+    ],
     timeline: [
       { label: "Reviewed onboarding mockups", when: "2 hours ago" },
       { label: "Intro call", when: "5 days ago" },
@@ -186,8 +209,10 @@ export const connections: Connection[] = [
     email: "sam@alder.vc",
     phone: "+1 (628) 555-0199",
     location: "Menlo Park, CA",
+    linkedin: "https://www.linkedin.com/in/samwhitfield",
     birthday: "—",
     note: "Leads pre-seed at Alder. Wants the deck by Friday plus a 3-line traction update. Prefers concise email, no calls.",
+    extraFields: [{ label: "Check size", value: "$250k–$500k pre-seed" }],
     timeline: [
       { label: "Requested pitch deck", when: "Yesterday" },
       { label: "Warm intro from Grace", when: "Jun 30" },
@@ -205,8 +230,10 @@ export const connections: Connection[] = [
     email: "david@lumen.study",
     phone: "+1 (312) 555-0177",
     location: "Chicago, IL",
+    linkedin: "https://www.linkedin.com/in/davidokafor",
     birthday: "Jul 9",
     note: "Co-founder on Lumen, owns the ML side. Birthday next week — grab dinner. Currently blocked on the eval dataset.",
+    extraFields: [],
     timeline: [
       { label: "Pushed ranking model v2", when: "3 days ago" },
       { label: "Sprint planning", when: "1 week ago" },
@@ -224,8 +251,10 @@ export const connections: Connection[] = [
     email: "grace.liu@figma.com",
     phone: "+1 (206) 555-0110",
     location: "Seattle, WA",
+    linkedin: "https://www.linkedin.com/in/graceliu",
     birthday: "Nov 3",
     note: "Mentor from the accelerator. Great for GTM and positioning. Check in roughly monthly.",
+    extraFields: [{ label: "Cadence", value: "Monthly check-in" }],
     timeline: [
       { label: "Monthly mentor call", when: "1 week ago" },
       { label: "Sent positioning notes", when: "Jun 12" },
@@ -243,8 +272,10 @@ export const connections: Connection[] = [
     email: "tobi@hey.com",
     phone: "+1 (971) 555-0166",
     location: "Portland, OR",
+    linkedin: "https://www.linkedin.com/in/tobiasreyes",
     birthday: "Aug 14",
     note: "Fellow student founder building in fintech. Good to trade notes with. Owes me a Figma intro.",
+    extraFields: [],
     timeline: [
       { label: "Traded investor lists", when: "2 weeks ago" },
       { label: "Hack night", when: "May 28" },
@@ -265,8 +296,10 @@ export const connections: Connection[] = [
     email: "elena@foundersfellowship.org",
     phone: "+1 (617) 555-0121",
     location: "Boston, MA",
+    linkedin: "https://www.linkedin.com/in/elenamora",
     birthday: "Feb 2",
     note: "Runs the fellowship we applied to. Decisions go out end of month. Send the updated one-pager.",
+    extraFields: [{ label: "Program", value: "Founders Fellowship '25 cohort" }],
     timeline: [
       { label: "Submitted application", when: "3 weeks ago" },
       { label: "Info session", when: "May 15" },
@@ -470,23 +503,42 @@ export const projects: Project[] = [
     outreach: [
       {
         id: "lo1",
-        label: "Pre-seed investor round",
+        label: "Alder Ventures",
         connectionId: "sam-whitfield",
         channel: "Email",
+        email: "sam@alderventures.com",
+        phone: "",
+        website: "https://alderventures.com",
         status: "Awaiting reply",
         lastContacted: "2026-07-03",
         followUpAt: "2026-07-10",
-        notes: "Sent deck v2 + 3-line traction update. Nudge if no reply by Fri.",
+        notes: "Sent Sam deck v2 + 3-line traction update. Nudge if no reply by Fri.",
       },
       {
         id: "lo2",
-        label: "Fall pilot — campus leads",
+        label: "Beacon Capital",
         connectionId: null,
         channel: "Email",
+        email: "jordan.ellis@beaconcap.com",
+        phone: "",
+        website: "https://beaconcap.com",
         status: "Sent",
         lastContacted: "2026-06-30",
         followUpAt: "2026-07-07",
-        notes: "Batch intro to 6 student org leads. Track who opens.",
+        notes: "Cold intro to Jordan Ellis via the demo day list. No reply yet.",
+      },
+      {
+        id: "lo3",
+        label: "Sequoia Scout",
+        connectionId: null,
+        channel: "LinkedIn",
+        email: "",
+        phone: "",
+        website: "https://sequoiacap.com/scout",
+        status: "Not started",
+        lastContacted: "",
+        followUpAt: "2026-07-06",
+        notes: "Draft a warm DM — Grace may have a contact on the scout team.",
       },
     ],
   },
@@ -512,13 +564,29 @@ export const projects: Project[] = [
     outreach: [
       {
         id: "fo1",
-        label: "Reference request — Grace",
+        label: "Grace Liu",
         connectionId: "grace-liu",
         channel: "Email",
+        email: "grace.liu@foundersfellowship.org",
+        phone: "",
+        website: "",
         status: "Replied",
         lastContacted: "2026-06-28",
         followUpAt: "",
-        notes: "Agreed to be a reference. Send her the form link.",
+        notes: "Asked her to be a reference — agreed. Send her the form link.",
+      },
+      {
+        id: "fo2",
+        label: "Prof. Adeyemi (rec letter)",
+        connectionId: null,
+        channel: "Email",
+        email: "t.adeyemi@university.edu",
+        phone: "",
+        website: "",
+        status: "Awaiting reply",
+        lastContacted: "2026-07-01",
+        followUpAt: "2026-07-08",
+        notes: "Requested a recommendation letter. Follow up before the deadline.",
       },
     ],
   },
@@ -540,9 +608,12 @@ export const projects: Project[] = [
     outreach: [
       {
         id: "no1",
-        label: "Keep Priya warm",
+        label: "Priya Raman",
         connectionId: "priya-raman",
         channel: "Email",
+        email: "priya@northwind.io",
+        phone: "+1 (415) 555-0142",
+        website: "https://northwind.io",
         status: "Not started",
         lastContacted: "",
         followUpAt: "2026-07-12",

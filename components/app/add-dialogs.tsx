@@ -96,8 +96,10 @@ export function AddConnectionDialog({
       email: input.email,
       phone: "",
       location: "",
+      linkedin: "",
       birthday: "—",
       note: "",
+      extraFields: [],
       timeline: [],
     };
     list.add(optimistic, () => createConnection(input));

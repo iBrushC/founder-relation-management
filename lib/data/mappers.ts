@@ -56,8 +56,10 @@ export function toConnection(row: ConnectionRow, rank: number): Connection {
     email: row.email ?? "",
     phone: row.phone ?? "",
     location: row.location ?? "",
+    linkedin: row.linkedin ?? "",
     birthday: row.birthday ? formatMonthDay(row.birthday) : "—",
     note: row.notes?.[0]?.body ?? "",
+    extraFields: row.extraFields ?? [],
     timeline,
   };
 }
@@ -113,6 +115,9 @@ export function toOutreach(row: ProjectOutreachRow): Outreach {
     label: row.label,
     connectionId: row.connectionId ?? null,
     channel: row.channel ?? "",
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    website: row.website ?? "",
     status: toOutreachStatus(row.status),
     lastContacted: row.lastContacted ?? "",
     followUpAt: row.followUpAt ?? "",

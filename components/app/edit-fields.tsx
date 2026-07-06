@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons, type IconKey } from "@/lib/icons";
-import type { Tag as TagType, Tone } from "@/lib/data";
+import type { ExtraField, Tag as TagType, Tone } from "@/lib/data";
 import { toneBg } from "@/lib/tone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,7 +184,7 @@ export function TagEditor({
                 type="button"
                 aria-label={`Remove ${t.label}`}
                 onClick={() => onChange(value.filter((_, j) => j !== i))}
-                className="grid size-4 place-items-center rounded-sm hover:bg-black/10"
+                className="grid size-4 cursor-pointer place-items-center rounded-sm hover:bg-black/10"
               >
                 <Icons.x className="size-3" />
               </button>
@@ -206,7 +206,7 @@ export function TagEditor({
                 onClick={() => addTag(t)}
                 aria-label={`Add ${t.label}`}
                 className={cn(
-                  "inline-flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs font-medium opacity-70 transition-opacity hover:opacity-100",
+                  "inline-flex h-6 cursor-pointer items-center gap-1 rounded-[5px] px-2 text-xs font-medium opacity-70 transition-opacity hover:opacity-100",
                   toneBg[t.tone],
                 )}
               >
@@ -311,6 +311,95 @@ export function ChipInput({
           onClick={add}
           disabled={!draft.trim()}
           aria-label="Add"
+        >
+          <Icons.plus className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Edit a list of free-form `{ label, value }` details: stacked rows with remove,
+ * plus a label + value input pair. Used for a connection's "additional
+ * information" — anything worth keeping that isn't a fixed contact field.
+ */
+export function KeyValueEditor({
+  value,
+  onChange,
+}: {
+  value: ExtraField[];
+  onChange: (fields: ExtraField[]) => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [detail, setDetail] = useState("");
+
+  const add = () => {
+    const l = label.trim();
+    const v = detail.trim();
+    if (!l || !v) return;
+    onChange([...value, { label: l, value: v }]);
+    setLabel("");
+    setDetail("");
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {value.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {value.map((f, i) => (
+            <div
+              key={`${f.label}-${i}`}
+              className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5"
+            >
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="text-[11px] text-muted-foreground">{f.label}</div>
+                <div className="truncate text-sm">{f.value}</div>
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${f.label}`}
+                onClick={() => onChange(value.filter((_, j) => j !== i))}
+                className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-black/10"
+              >
+                <Icons.x className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="Label"
+          className="h-8 w-2/5 shrink-0"
+        />
+        <Input
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="Value"
+          className="h-8 flex-1"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon-sm"
+          onClick={add}
+          disabled={!label.trim() || !detail.trim()}
+          aria-label="Add detail"
         >
           <Icons.plus className="size-4" />
         </Button>

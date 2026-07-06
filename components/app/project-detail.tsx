@@ -435,7 +435,7 @@ export function ProjectDetail({
         <Section title="Outreach">
           <OutreachTable
             projectId={current.id}
-            outreach={current.outreach}
+            outreach={project.outreach}
             people={people}
           />
         </Section>
