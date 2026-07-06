@@ -38,9 +38,12 @@ export function Sidebar() {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
       <div className="flex items-center gap-2.5 px-4 py-5">
-        <span className="grid size-7 place-items-center rounded-md bg-primary font-heading text-sm font-bold text-primary-foreground">
-          S
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
+        <img
+          src="/SFRM.png"
+          alt="SFRM"
+          className="size-7 shrink-0 rounded-md"
+        />
         <span className="font-heading text-sm font-bold tracking-tight text-sidebar-foreground">
           SFRM
         </span>

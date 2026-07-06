@@ -8,9 +8,12 @@ export default function AuthLayout({
       {/* Form column — ~35% on desktop, full width on mobile */}
       <div className="flex w-full flex-col px-6 py-8 sm:px-10 lg:w-[35%] lg:min-w-[380px]">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="grid size-7 place-items-center rounded-md bg-primary font-heading text-sm font-bold text-primary-foreground">
-            S
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
+          <img
+            src="/SFRM.png"
+            alt="SFRM"
+            className="size-7 shrink-0 rounded-md"
+          />
           <span className="font-heading text-sm font-bold tracking-tight">
             SFRM
           </span>

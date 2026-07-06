@@ -171,14 +171,14 @@ function IntervalControl({
 /* ------------------------------------------------------------------ */
 
 function IntegrationRow({
-  icon: Icon,
+  logo,
   name,
   description,
   connected,
   account,
   onToggle,
 }: {
-  icon: (typeof Icons)[keyof typeof Icons];
+  logo: string;
   name: string;
   description: string;
   connected: boolean;
@@ -187,8 +187,13 @@ function IntegrationRow({
 }) {
   return (
     <div className="flex items-center gap-3.5 px-4 py-3">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted/50">
-        <Icon className="size-[18px]" />
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
+        <img
+          src={logo}
+          alt={`${name} logo`}
+          className="size-[18px] object-contain"
+        />
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">{name}</div>
@@ -539,7 +544,7 @@ export function SettingsView() {
       <Section title="Integrations">
         <Card>
           <IntegrationRow
-            icon={Icons.google}
+            logo="/google.png"
             name="Google"
             description="Sync contacts and calendar events."
             connected={google}
@@ -547,7 +552,7 @@ export function SettingsView() {
             onToggle={() => setGoogle((v) => !v)}
           />
           <IntegrationRow
-            icon={Icons.linkedin}
+            logo="/linkedin.png"
             name="LinkedIn"
             description="Import connections and enrich profiles."
             connected={linkedin}
@@ -631,6 +636,19 @@ export function SettingsView() {
           </Row>
         </div>
       </Section>
+
+      {/* ---- Brand footer ---- */}
+      <div className="flex flex-col items-center gap-2 pt-2 pb-1 text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
+        <img
+          src="/SFRM.png"
+          alt="SFRM"
+          className="size-8 rounded-md opacity-90"
+        />
+        <p className="text-xs text-muted-foreground">
+          Student Founder Relation Management
+        </p>
+      </div>
 
       <ConfirmDialog
         open={confirmWipe}
