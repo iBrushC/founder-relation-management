@@ -230,6 +230,8 @@ function PanelBody({
   const [editing, setEditing] = useState(initialEditing);
   const [form, setForm] = useState<Form>(() => toForm(connection));
   const [logOpen, setLogOpen] = useState(false);
+  const [logText, setLogText] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
 
   const setField =
@@ -301,7 +303,15 @@ function PanelBody({
       last: entry.when,
     };
     persist(next, () => logInteraction(current.id, entry));
+    setLogText("");
     setLogOpen(false);
+  };
+
+  /** The fast path: log the inline free-text note as a plain interaction. */
+  const quickAdd = () => {
+    const label = logText.trim();
+    if (!label) return;
+    addLog({ label, when: "Just now" });
   };
 
   const deleteLog = (index: number) => {
@@ -546,12 +556,49 @@ function PanelBody({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs"
-                  onClick={() => setLogOpen(true)}
+                  onClick={() => setLogOpen((o) => !o)}
                 >
                   <Icons.plus className="size-3.5" /> Log
                 </Button>
               }
             >
+              {logOpen ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      autoFocus
+                      value={logText}
+                      onChange={(e) => setLogText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          quickAdd();
+                        }
+                      }}
+                      placeholder="e.g. Coffee, talked pilot…"
+                      className="h-8"
+                    />
+                    <Button
+                      size="icon-sm"
+                      variant="secondary"
+                      onClick={quickAdd}
+                      disabled={!logText.trim()}
+                      aria-label="Add interaction"
+                    >
+                      <Icons.check className="size-4" />
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 self-start px-2 text-xs text-muted-foreground"
+                    onClick={() => setDetailsOpen(true)}
+                  >
+                    <Icons.plus className="size-3.5" /> Add date &amp; type
+                  </Button>
+                </div>
+              ) : null}
               {current.timeline.length > 0 ? (
                 <ol className="flex flex-col gap-1.5">
                   {current.timeline.map((item, i) => {
@@ -600,11 +647,11 @@ function PanelBody({
                     );
                   })}
                 </ol>
-              ) : (
+              ) : !logOpen ? (
                 <p className="text-sm text-muted-foreground">
                   No interactions logged yet.
                 </p>
-              )}
+              ) : null}
             </Block>
           </>
         )}
@@ -638,9 +685,11 @@ function PanelBody({
 
       <LogInteractionDialog
         connectionName={current.name}
-        open={logOpen}
-        onOpenChange={setLogOpen}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
         onSubmit={addLog}
+        initialNote={logText}
+        initialDetailsOpen
       />
     </>
   );
