@@ -43,6 +43,7 @@ import {
   CreateProjectInput,
   CreateStageInput,
   CreateTaskInput,
+  ImportConnectionsInput,
   InteractionsInput,
   SubtasksInput,
   UpdateConnectionPatch,
@@ -324,6 +325,56 @@ export async function createConnection(input: {
     });
     revalidatePath("/connections");
     revalidatePath("/");
+  });
+}
+
+/**
+ * Bulk-create connections from a CSV import. The client has already parsed the
+ * file and applied the user-confirmed column→field mapping, so this just
+ * validates and inserts the batch in one statement. Rows without a name are
+ * dropped client-side; `note` (if mapped) becomes the connection's single note.
+ * Returns the number persisted so the caller can confirm the import.
+ */
+export async function importConnections(
+  inputs: Array<{
+    name: string;
+    role?: string;
+    company?: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+    location?: string;
+    note?: string;
+  }>,
+): Promise<ActionResult<{ count: number }>> {
+  const parsed = ImportConnectionsInput.safeParse(inputs);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  const user = await verifySession();
+  const nowIso = new Date().toISOString();
+
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      await tx.insert(connections).values(
+        parsed.data.map((c) => {
+          const note = c.note?.trim();
+          return {
+            ownerId: user.userId,
+            name: c.name.trim(),
+            role: c.role?.trim() || null,
+            company: c.company?.trim() || null,
+            email: c.email?.trim() || null,
+            phone: c.phone?.trim() || null,
+            linkedin: c.linkedin?.trim() || null,
+            location: c.location?.trim() || null,
+            notes: note ? [{ id: randomUUID(), body: note, createdAt: nowIso }] : [],
+          };
+        }),
+      );
+    });
+    revalidatePath("/connections");
+    revalidatePath("/");
+    return { count: parsed.data.length };
   });
 }
 

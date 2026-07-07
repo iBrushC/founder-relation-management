@@ -61,6 +61,8 @@ export type ReactiveList<T> = {
   exitingIds: ReadonlySet<string>;
   /** Show `optimistic` now, run `action`; the real row replaces it on commit. */
   add: (optimistic: T, action: Action) => void;
+  /** Like `add`, but for a batch (e.g. a CSV import) behind one `action`. */
+  addMany: (optimistic: T[], action: Action) => void;
   /** Swap the row for `next` in place now, then run `action` to persist it. */
   update: (next: T, action: Action) => void;
   /** Start `id`'s leave animation; `action` fires when the pop-out ends. */
@@ -137,6 +139,30 @@ export function useReactiveList<T extends Keyed>(server: T[]): ReactiveList<T> {
     [apply, settle],
   );
 
+  const addMany = useCallback<ReactiveList<T>["addMany"]>(
+    (optimistic, action) => {
+      if (optimistic.length === 0) return;
+      setEntering((s) => {
+        const next = new Set(s);
+        optimistic.forEach((it) => next.add(it.id));
+        return next;
+      });
+      startTransition(async () => {
+        // Apply in reverse so the first CSV row ends up on top (each add prepends).
+        for (let i = optimistic.length - 1; i >= 0; i--) {
+          apply({ type: "add", item: optimistic[i] });
+        }
+        await settle(action);
+        setEntering((s) => {
+          const next = new Set(s);
+          optimistic.forEach((it) => next.delete(it.id));
+          return next;
+        });
+      });
+    },
+    [apply, settle],
+  );
+
   const update = useCallback<ReactiveList<T>["update"]>(
     (next, action) => {
       startTransition(async () => {
@@ -173,7 +199,7 @@ export function useReactiveList<T extends Keyed>(server: T[]): ReactiveList<T> {
     [onExited],
   );
 
-  return { items, enteringIds, exitingIds, add, update, remove, onExited };
+  return { items, enteringIds, exitingIds, add, addMany, update, remove, onExited };
 }
 
 const EMPTY: ReadonlySet<string> = new Set();
@@ -189,6 +215,7 @@ export function staticList<T extends Keyed>(items: T[]): ReactiveList<T> {
     enteringIds: EMPTY,
     exitingIds: EMPTY,
     add: (_optimistic, action) => void action(),
+    addMany: (_optimistic, action) => void action(),
     update: (_next, action) => void action(),
     remove: (_id, action) => void action(),
     onExited: () => {},

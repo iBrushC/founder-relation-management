@@ -81,6 +81,20 @@ const contact = {
 export const CreateConnectionInput = z.object({ name, ...contact });
 export const CreateLinkedConnectionInput = CreateConnectionInput;
 
+/** One mapped row from a CSV import — the contact fields a column can fill. */
+export const ImportConnectionInput = z.object({
+  name,
+  role: shortText.optional(),
+  company: shortText.optional(),
+  email: email.optional(),
+  phone: phone.optional(),
+  linkedin: url.optional(),
+  location: shortText.optional(),
+  note: longText.optional(),
+});
+/** A whole import batch: at least one row, capped so a huge paste can't hang. */
+export const ImportConnectionsInput = z.array(ImportConnectionInput).min(1).max(2000);
+
 export const CreateEventInput = z.object({
   name,
   eventDate: zDate,
