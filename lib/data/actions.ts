@@ -461,8 +461,11 @@ export async function logInteraction(
   if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
   const parsed = zInteraction.safeParse(interaction);
   if (!parsed.success) return fail(firstIssue(parsed.error));
-  const label = interaction.label.trim();
-  const when = interaction.when.trim() || "Just now";
+  // Keep only the fields that were provided; default an empty display label.
+  const entry: Interaction = {
+    ...parsed.data,
+    when: parsed.data.when.trim() || "Just now",
+  };
 
   return run(async () => {
     await withUserRLS(async (tx) => {
@@ -473,7 +476,7 @@ export async function logInteraction(
       if (!row) return;
       await tx
         .update(connections)
-        .set({ interactions: [{ label, when }, ...(row.interactions ?? [])] })
+        .set({ interactions: [entry, ...(row.interactions ?? [])] })
         .where(eq(connections.id, connectionId));
     });
     revalidatePath("/connections");

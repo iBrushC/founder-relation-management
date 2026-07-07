@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import type { Connection, Tag as TagType } from "@/lib/data";
-import { removeConnection } from "@/lib/data/actions";
+import type { Connection, Interaction, Tag as TagType } from "@/lib/data";
+import { logInteraction, removeConnection } from "@/lib/data/actions";
 import {
   popProps,
   staticList,
@@ -34,6 +34,7 @@ import {
   ConnectionDetailInline,
   type ProjectLink,
 } from "@/components/app/connection-panel";
+import { LogInteractionDialog } from "@/components/app/log-interaction-dialog";
 
 export function ConnectionsView({
   connections,
@@ -49,13 +50,15 @@ export function ConnectionsView({
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [intent, setIntent] = useState<"view" | "edit" | "log">("view");
+  const [intent, setIntent] = useState<"view" | "edit">("view");
+  // The connection whose "Log interaction" dialog is open (null = closed).
+  const [logId, setLogId] = useState<string | null>(null);
 
   // The full Connections page shows the detail inline (in-page); other surfaces
   // (e.g. the dashboard section) keep the overlay sheet.
   const inlineDetail = showControls;
 
-  const openPanel = (id: string, next: "view" | "edit" | "log") => {
+  const openPanel = (id: string, next: "view" | "edit") => {
     setIntent(next);
     setSelectedId(id);
   };
@@ -94,6 +97,20 @@ export function ConnectionsView({
 
   const selected = rows.find((c) => c.id === selectedId) ?? null;
   const collapsed = inlineDetail && selected !== null;
+
+  const logTarget = rows.find((c) => c.id === logId) ?? null;
+
+  // Prepend a logged interaction to the target, optimistically through the list.
+  const handleLog = (entry: Interaction) => {
+    if (!logTarget) return;
+    const next: Connection = {
+      ...logTarget,
+      timeline: [entry, ...logTarget.timeline],
+      last: entry.when,
+    };
+    list.update(next, () => logInteraction(logTarget.id, entry));
+    setLogId(null);
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -136,6 +153,7 @@ export function ConnectionsView({
               rows={filtered}
               list={list}
               onOpen={openPanel}
+              onLog={setLogId}
             />
           )}
         </div>
@@ -147,7 +165,6 @@ export function ConnectionsView({
               projects={connectionProjects[selected.id] ?? []}
               tagSuggestions={tagSuggestions}
               initialEditing={intent === "edit"}
-              initialLogOpen={intent === "log"}
               onClose={() => setSelectedId(null)}
             />
           </div>
@@ -162,9 +179,15 @@ export function ConnectionsView({
           open={selected !== null}
           onOpenChange={(o) => !o && setSelectedId(null)}
           initialEditing={intent === "edit"}
-          initialLogOpen={intent === "log"}
         />
       ) : null}
+
+      <LogInteractionDialog
+        connectionName={logTarget?.name}
+        open={logTarget !== null}
+        onOpenChange={(o) => !o && setLogId(null)}
+        onSubmit={handleLog}
+      />
     </div>
   );
 }
@@ -174,10 +197,12 @@ function FullTable({
   rows,
   list,
   onOpen,
+  onLog,
 }: {
   rows: Connection[];
   list: ReactiveList<Connection>;
-  onOpen: (id: string, intent: "view" | "edit" | "log") => void;
+  onOpen: (id: string, intent: "view" | "edit") => void;
+  onLog: (id: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -234,7 +259,7 @@ function FullTable({
                       {
                         icon: Icons.message,
                         label: "Log interaction",
-                        onClick: () => onOpen(c.id, "log"),
+                        onClick: () => onLog(c.id),
                       },
                       {
                         icon: Icons.edit,

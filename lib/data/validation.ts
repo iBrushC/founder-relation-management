@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OUTREACH_STATUSES } from "@/lib/data";
+import { INTERACTION_TYPES, OUTREACH_STATUSES } from "@/lib/data";
 
 /**
  * Input validation for the CRM write actions (`lib/data/actions.ts`).
@@ -49,7 +49,19 @@ const longText = txt(5000); // notes, description, summary, bio
 /* ---- Composite JSONB element shapes ------------------------------- */
 
 export const zTag = z.object({ label: reqTxt(60), tone: zTone });
-export const zInteraction = z.object({ label: reqTxt(500), when: txt(100) });
+export const zInteractionType = z.enum(INTERACTION_TYPES);
+export const zInteraction = z
+  .object({
+    label: txt(500),
+    when: txt(100),
+    type: zInteractionType.optional(),
+    date: zDate.optional(),
+    until: zDate.optional(),
+  })
+  // An entry needs *something* to identify it: a type, a note, or a date.
+  .refine((i) => Boolean(i.type || i.label || i.date), {
+    message: "Add a type or a note",
+  });
 export const zExtraField = z.object({ label: reqTxt(100), value: txt(1000) });
 export const zSubtask = z.object({
   id: txt(100),

@@ -11,7 +11,44 @@ export type Tone =
 
 export type Tag = { label: string; tone: Tone };
 
-export type Interaction = { label: string; when: string };
+/** The kinds of touchpoint a logged interaction can be. */
+export const INTERACTION_TYPES = [
+  "Coffee",
+  "Call",
+  "Email",
+  "Meeting",
+  "Message",
+  "Intro",
+  "LinkedIn",
+  "Other",
+] as const;
+
+export type InteractionType = (typeof INTERACTION_TYPES)[number];
+
+/** Icon shown beside each interaction type in the picker and timeline. */
+export const interactionTypeIcon: Record<InteractionType, IconKey> = {
+  Coffee: "coffee",
+  Call: "phone",
+  Email: "mail",
+  Meeting: "calendarCheck",
+  Message: "message",
+  Intro: "users",
+  LinkedIn: "linkedin",
+  Other: "sparkles",
+};
+
+export type Interaction = {
+  /** Optional free-text note about the interaction. */
+  label: string;
+  /** Human-readable display label for when it happened (e.g. "Today"). */
+  when: string;
+  /** Kind of touchpoint. Absent on older free-text entries. */
+  type?: InteractionType;
+  /** ISO date (YYYY-MM-DD) the interaction happened. */
+  date?: string;
+  /** Optional ISO end date, for a multi-day interaction. */
+  until?: string;
+};
 
 /** A free-form key/value pair kept under a connection's "additional information". */
 export type ExtraField = { label: string; value: string };

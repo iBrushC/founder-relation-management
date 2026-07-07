@@ -12,6 +12,7 @@ import type {
   Tag as TagType,
   Tone,
 } from "@/lib/data";
+import { interactionTypeIcon } from "@/lib/data";
 import { formatMonthDay, monthDayToIso } from "@/lib/data/format";
 import {
   logInteraction,
@@ -19,6 +20,7 @@ import {
   updateConnectionNote,
   updateInteractions,
 } from "@/lib/data/actions";
+import { LogInteractionDialog } from "@/components/app/log-interaction-dialog";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import { ConnectionsList } from "@/components/app/list-contexts";
 import {
@@ -129,7 +131,6 @@ export function ConnectionPanel({
   open,
   onOpenChange,
   initialEditing = false,
-  initialLogOpen = false,
 }: {
   connection: Connection | null;
   /** Projects this connection is linked to. */
@@ -140,8 +141,6 @@ export function ConnectionPanel({
   onOpenChange: (open: boolean) => void;
   /** Open straight into edit mode (e.g. from a row's pencil button). */
   initialEditing?: boolean;
-  /** Open with the "log interaction" input revealed (from the log button). */
-  initialLogOpen?: boolean;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -157,7 +156,6 @@ export function ConnectionPanel({
             projects={projects}
             tagSuggestions={tagSuggestions}
             initialEditing={initialEditing}
-            initialLogOpen={initialLogOpen}
             onClose={() => onOpenChange(false)}
           />
         ) : null}
@@ -176,14 +174,12 @@ export function ConnectionDetailInline({
   projects = [],
   tagSuggestions = [],
   initialEditing = false,
-  initialLogOpen = false,
   onClose,
 }: {
   connection: Connection;
   projects?: ProjectLink[];
   tagSuggestions?: TagType[];
   initialEditing?: boolean;
-  initialLogOpen?: boolean;
   onClose: () => void;
 }) {
   return (
@@ -203,7 +199,6 @@ export function ConnectionDetailInline({
         projects={projects}
         tagSuggestions={tagSuggestions}
         initialEditing={initialEditing}
-        initialLogOpen={initialLogOpen}
         onClose={onClose}
       />
     </div>
@@ -222,22 +217,19 @@ function PanelBody({
   projects,
   tagSuggestions,
   initialEditing,
-  initialLogOpen,
   onClose,
 }: {
   connection: Connection;
   projects: ProjectLink[];
   tagSuggestions: TagType[];
   initialEditing: boolean;
-  initialLogOpen: boolean;
   onClose: () => void;
 }) {
   const list = ConnectionsList.useOptional();
   const [current, setCurrent] = useState<Connection>(connection);
   const [editing, setEditing] = useState(initialEditing);
   const [form, setForm] = useState<Form>(() => toForm(connection));
-  const [logOpen, setLogOpen] = useState(initialLogOpen);
-  const [logText, setLogText] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
 
   const setField =
@@ -302,17 +294,13 @@ function PanelBody({
     setEditing(false);
   };
 
-  const addLog = () => {
-    const label = logText.trim();
-    if (!label) return;
-    const entry: Interaction = { label, when: "Just now" };
+  const addLog = (entry: Interaction) => {
     const next: Connection = {
       ...current,
       timeline: [entry, ...current.timeline],
       last: entry.when,
     };
     persist(next, () => logInteraction(current.id, entry));
-    setLogText("");
     setLogOpen(false);
   };
 
@@ -558,68 +546,65 @@ function PanelBody({
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs"
-                  onClick={() => setLogOpen((o) => !o)}
+                  onClick={() => setLogOpen(true)}
                 >
                   <Icons.plus className="size-3.5" /> Log
                 </Button>
               }
             >
-              {logOpen ? (
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    autoFocus
-                    value={logText}
-                    onChange={(e) => setLogText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addLog();
-                      }
-                    }}
-                    placeholder="e.g. Coffee, talked pilot…"
-                    className="h-8"
-                  />
-                  <Button
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={addLog}
-                    disabled={!logText.trim()}
-                    aria-label="Add interaction"
-                  >
-                    <Icons.check className="size-4" />
-                  </Button>
-                </div>
-              ) : null}
               {current.timeline.length > 0 ? (
                 <ol className="flex flex-col gap-1.5">
-                  {current.timeline.map((item, i) => (
-                    <li
-                      key={i}
-                      className="group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2"
-                    >
-                      <span className="h-7 w-1 shrink-0 rounded-full bg-primary/55" />
-                      <div className="min-w-0 flex-1 leading-tight">
-                        <div className="text-sm font-medium">{item.label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.when}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="Delete interaction"
-                        onClick={() => deleteLog(i)}
-                        className="grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+                  {current.timeline.map((item, i) => {
+                    const Icon = item.type
+                      ? Icons[interactionTypeIcon[item.type]]
+                      : null;
+                    // Headline: the type; the note (if any) sits beside it. Older
+                    // free-text entries fall back to their note as the headline.
+                    const headline = item.type ?? item.label ?? "Interaction";
+                    const detail = item.type ? item.label : "";
+                    return (
+                      <li
+                        key={i}
+                        className="group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2"
                       >
-                        <Icons.x className="size-3.5" />
-                      </button>
-                    </li>
-                  ))}
+                        {Icon ? (
+                          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                            <Icon className="size-4" />
+                          </span>
+                        ) : (
+                          <span className="h-7 w-1 shrink-0 rounded-full bg-primary/55" />
+                        )}
+                        <div className="min-w-0 flex-1 leading-tight">
+                          <div className="truncate text-sm font-medium">
+                            {headline}
+                            {detail ? (
+                              <span className="font-normal text-muted-foreground">
+                                {" · "}
+                                {detail}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.when}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Delete interaction"
+                          onClick={() => deleteLog(i)}
+                          className="grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+                        >
+                          <Icons.x className="size-3.5" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ol>
-              ) : !logOpen ? (
+              ) : (
                 <p className="text-sm text-muted-foreground">
                   No interactions logged yet.
                 </p>
-              ) : null}
+              )}
             </Block>
           </>
         )}
@@ -650,6 +635,13 @@ function PanelBody({
           </>
         )}
       </SheetFooter>
+
+      <LogInteractionDialog
+        connectionName={current.name}
+        open={logOpen}
+        onOpenChange={setLogOpen}
+        onSubmit={addLog}
+      />
     </>
   );
 }
