@@ -132,7 +132,9 @@ export function TaskList({
   };
 
   const openCount = items.filter((t) => !t.done).length;
-  const ordered = [...items].sort((a, b) => Number(a.done) - Number(b.done));
+  // Render in list order (newest first). Completing a task leaves it in place —
+  // we deliberately don't re-sort done tasks to the bottom.
+  const ordered = items;
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">

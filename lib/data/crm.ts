@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 
 import {
   connections,
@@ -32,13 +32,13 @@ import {
  * (see ./mappers), so pages can drop these in where the demo arrays used to be.
  */
 
-/** All of the user's connections, in a stable order (rank = position). */
+/** All of the user's connections, newest first (a freshly added one stays on top). */
 export async function listConnections(): Promise<Connection[]> {
   return withUserRLS(async (tx) => {
     const rows = await tx
       .select()
       .from(connections)
-      .orderBy(asc(connections.createdAt));
+      .orderBy(desc(connections.createdAt));
     return rows.map((row, i) => toConnection(row, i + 1));
   });
 }
@@ -71,7 +71,7 @@ async function assembleProjects(projectId?: string): Promise<Project[]> {
   return withUserRLS(async (tx) => {
     const projectRows = projectId
       ? await tx.select().from(projects).where(eq(projects.id, projectId))
-      : await tx.select().from(projects).orderBy(asc(projects.createdAt));
+      : await tx.select().from(projects).orderBy(desc(projects.createdAt));
     if (projectRows.length === 0) return [];
 
     const [taskRows, stageRows, participantRows, outreachRows] =
@@ -80,7 +80,9 @@ async function assembleProjects(projectId?: string): Promise<Project[]> {
           .select()
           .from(projectTasks)
           .where(projectId ? eq(projectTasks.projectId, projectId) : undefined)
-          .orderBy(asc(projectTasks.position)),
+          // Newest first: a new task's position is the current count (the max),
+          // so descending keeps freshly added tasks at the top and stable.
+          .orderBy(desc(projectTasks.position)),
         tx
           .select()
           .from(projectStages)
@@ -98,7 +100,8 @@ async function assembleProjects(projectId?: string): Promise<Project[]> {
           .where(
             projectId ? eq(projectOutreach.projectId, projectId) : undefined,
           )
-          .orderBy(asc(projectOutreach.position)),
+          // Newest first, same as tasks: keeps a freshly added recipient on top.
+          .orderBy(desc(projectOutreach.position)),
       ]);
 
     const tasksByProject = groupBy(taskRows, (t) => t.projectId, toTask);
