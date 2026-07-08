@@ -8,7 +8,7 @@ import {
   type Interaction,
   type InteractionType,
 } from "@/lib/data";
-import { formatMonthDay, formatWhen } from "@/lib/data/format";
+import { formatInteractionWhen, todayIso } from "@/lib/data/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,22 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-/** Today's date as an ISO `YYYY-MM-DD` string (local time). */
-function todayIso(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-/** A human "when" label for a logged interaction, optionally spanning two dates. */
-function whenLabel(date: string, until: string): string {
-  if (!date) return "Just now";
-  if (until && until > date) {
-    return `${formatMonthDay(date)} – ${formatMonthDay(until)}`;
-  }
-  return formatWhen(date);
-}
 
 /**
  * A small dialog for logging an interaction against a connection. It's
@@ -134,11 +118,17 @@ function InteractionForm({
         date,
         until: cleanUntil,
         label: note.trim(),
-        when: whenLabel(date, cleanUntil ?? ""),
+        when: formatInteractionWhen(date, cleanUntil) ?? "Today",
       });
     } else {
-      // Simple, fast path: just the free-text note, logged as "Just now".
-      onSubmit({ label: note.trim(), when: "Just now" });
+      // Simple, fast path: just the free-text note. We still stamp today's date
+      // so it sorts correctly and its label ages instead of freezing at "Today".
+      const today = todayIso();
+      onSubmit({
+        label: note.trim(),
+        date: today,
+        when: formatInteractionWhen(today) ?? "Today",
+      });
     }
   };
 

@@ -49,6 +49,54 @@ export function formatWhen(iso: string): string {
   return formatMonthDay(iso);
 }
 
+/** Today as an ISO `YYYY-MM-DD` string (local time). */
+export function todayIso(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * The display "when" for a logged interaction, derived from its occurrence date
+ * so it *ages* (a log stamped today reads "Today", then "Yesterday" tomorrow,
+ * then the month/day). A multi-day span shows both ends. Returns null when the
+ * entry has no date (a legacy free-text entry that only carries a frozen label).
+ */
+export function formatInteractionWhen(
+  date?: string,
+  until?: string,
+): string | null {
+  if (!date) return null;
+  if (until && until > date) {
+    return `${formatMonthDay(date)} – ${formatMonthDay(until)}`;
+  }
+  return formatWhen(date);
+}
+
+/**
+ * Best-effort ISO date for a *legacy* interaction that predates stored dates,
+ * recovered from its frozen `when` label so it can still sort and age. Handles
+ * absolute month/day labels ("Jun 24") and spans ("Jun 24 – Jun 28" → the
+ * start). Returns null for relative labels ("Just now", "5 days ago") whose true
+ * date was never recorded and can't be known.
+ */
+export function legacyWhenToIso(
+  when: string,
+  year = new Date().getFullYear(),
+): string | null {
+  const start = when.split(/[–-]/)[0].trim(); // a span → its start date
+  return monthDayToIso(start, year);
+}
+
+/**
+ * Order a connection's interactions most-recent first by occurrence date.
+ * The sort is stable, so entries sharing a date keep their insertion order
+ * (newest-added first); undated legacy entries sink to the bottom.
+ */
+export function sortInteractions<T extends { date?: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
 /** Coarse "time ago" label from a timestamp, for a connection's last-contact. */
 export function relativeSince(ts: string | Date): string {
   const then = new Date(ts).getTime();

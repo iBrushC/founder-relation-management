@@ -33,7 +33,7 @@ import {
 import { listConnections, listEvents, listProjects } from "@/lib/data/crm";
 import { verifySession } from "@/lib/data/session";
 import { withUserRLS } from "@/lib/db/rls";
-import { monthDayToIso } from "./format";
+import { formatInteractionWhen, monthDayToIso, todayIso } from "./format";
 import { toConnection } from "./mappers";
 import { type ActionResult, fail, firstIssue, run } from "./result";
 import {
@@ -512,10 +512,14 @@ export async function logInteraction(
   if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
   const parsed = zInteraction.safeParse(interaction);
   if (!parsed.success) return fail(firstIssue(parsed.error));
-  // Keep only the fields that were provided; default an empty display label.
+  // Auto-record today's date when the caller didn't specify one, so every entry
+  // is sortable and its "when" label ages instead of freezing. A dated entry
+  // keeps its date; the display label is always derived from the date.
+  const date = parsed.data.date ?? todayIso();
   const entry: Interaction = {
     ...parsed.data,
-    when: parsed.data.when.trim() || "Just now",
+    date,
+    when: formatInteractionWhen(date, parsed.data.until) ?? "Just now",
   };
 
   return run(async () => {

@@ -15,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { authUid, authUsers, authenticatedRole } from "drizzle-orm/supabase";
+import type { InteractionType } from "@/lib/data";
 
 /**
  * SFRM database. Drizzle is the SINGLE source of truth for the schema: the
@@ -72,7 +73,16 @@ export type EventCategory = (typeof eventCategory.enumValues)[number];
 /** A colored label attached to a connection or project. */
 export type Tag = { label: string; tone: Tone };
 /** One entry in a connection's interaction timeline. */
-export type Interaction = { label: string; when: string };
+export type Interaction = {
+  label: string;
+  when: string;
+  /** Kind of touchpoint. Absent on older free-text entries. */
+  type?: InteractionType;
+  /** ISO date (YYYY-MM-DD) the interaction happened. Absent on legacy entries. */
+  date?: string;
+  /** Optional ISO end date, for a multi-day interaction. */
+  until?: string;
+};
 /** A free-form note on a connection. Stored inline; never queried individually. */
 export type ConnectionNote = { id: string; body: string; createdAt: string };
 /** A free-form key/value detail beyond a connection's fixed contact fields. */

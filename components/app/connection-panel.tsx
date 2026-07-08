@@ -13,7 +13,13 @@ import type {
   Tone,
 } from "@/lib/data";
 import { interactionTypeIcon } from "@/lib/data";
-import { formatMonthDay, monthDayToIso } from "@/lib/data/format";
+import {
+  formatInteractionWhen,
+  formatMonthDay,
+  monthDayToIso,
+  sortInteractions,
+  todayIso,
+} from "@/lib/data/format";
 import {
   logInteraction,
   updateConnection,
@@ -297,29 +303,35 @@ function PanelBody({
   };
 
   const addLog = (entry: Interaction) => {
+    // Keep the timeline sorted most-recent first so display and index-based
+    // delete stay in agreement.
+    const timeline = sortInteractions([entry, ...current.timeline]);
+    const top = timeline[0];
     const next: Connection = {
       ...current,
-      timeline: [entry, ...current.timeline],
-      last: entry.when,
+      timeline,
+      last: (formatInteractionWhen(top.date, top.until) ?? top.when),
     };
     persist(next, () => logInteraction(current.id, entry));
     setLogText("");
     setLogOpen(false);
   };
 
-  /** The fast path: log the inline free-text note as a plain interaction. */
+  /** The fast path: log the inline free-text note, stamped with today's date. */
   const quickAdd = () => {
     const label = logText.trim();
     if (!label) return;
-    addLog({ label, when: "Just now" });
+    const today = todayIso();
+    addLog({ label, date: today, when: formatInteractionWhen(today) ?? "Today" });
   };
 
   const deleteLog = (index: number) => {
     const timeline = current.timeline.filter((_, i) => i !== index);
+    const top = timeline[0];
     const next: Connection = {
       ...current,
       timeline,
-      last: timeline[0]?.when ?? current.last,
+      last: top ? (formatInteractionWhen(top.date, top.until) ?? top.when) : current.last,
     };
     persist(next, () => updateInteractions(current.id, timeline));
   };
@@ -632,7 +644,8 @@ function PanelBody({
                             ) : null}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {item.when}
+                            {formatInteractionWhen(item.date, item.until) ??
+                              item.when}
                           </div>
                         </div>
                         <button

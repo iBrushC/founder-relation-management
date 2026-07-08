@@ -25,7 +25,15 @@ import type {
   ProjectStageRow,
   ProjectTaskRow,
 } from "@/drizzle/schema";
-import { formatMonthDay, formatWhen, isUpcoming, relativeSince } from "./format";
+import {
+  formatInteractionWhen,
+  formatMonthDay,
+  formatWhen,
+  isUpcoming,
+  legacyWhenToIso,
+  relativeSince,
+  sortInteractions,
+} from "./format";
 
 /** The `public.updates` view is SQL-only; this is the shape a row comes back as. */
 export type UpdatesViewRow = {
@@ -43,7 +51,14 @@ export type UpdatesViewRow = {
 };
 
 export function toConnection(row: ConnectionRow, rank: number): Connection {
-  const timeline = row.interactions ?? [];
+  // Recover a date for legacy entries saved before dates were stamped, so they
+  // sort and age like new ones. Absolute labels ("Jun 24") are recoverable;
+  // relative ones ("Just now") keep their frozen label until re-dated.
+  const dated = (row.interactions ?? []).map((it) =>
+    it.date ? it : { ...it, date: legacyWhenToIso(it.when) ?? undefined },
+  );
+  const timeline = sortInteractions(dated);
+  const top = timeline[0];
   return {
     id: row.id,
     name: row.name,
@@ -51,7 +66,9 @@ export function toConnection(row: ConnectionRow, rank: number): Connection {
     company: row.company ?? "",
     avatarTone: row.avatarTone,
     tags: row.tags ?? [],
-    last: timeline[0]?.when ?? relativeSince(row.updatedAt),
+    last: top
+      ? (formatInteractionWhen(top.date, top.until) ?? top.when)
+      : relativeSince(row.updatedAt),
     rank,
     email: row.email ?? "",
     phone: row.phone ?? "",
