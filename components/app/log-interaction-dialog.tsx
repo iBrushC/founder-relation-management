@@ -11,11 +11,13 @@ import {
 import {
   formatInteractionWhen,
   formatWhen,
-  recognizeDateInText,
+  recognizeDate,
+  stripDateRange,
   todayIso,
 } from "@/lib/data/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HighlightedInput } from "@/components/app/highlighted-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -130,13 +132,20 @@ function InteractionForm({
   // entry's saved date), stop auto-driving the date from the note text.
   const [dateTouched, setDateTouched] = useState(Boolean(initialEntry));
 
-  // Recognize a date phrase in the note ("coffee yesterday", "call Jun 3") and,
-  // until the user overrides the date, keep the date field in step with it.
-  const detected = useMemo(() => recognizeDateInText(note), [note]);
+  // Recognize a date phrase in the note ("coffee yesterday", "call Jun 3").
+  // While the user hasn't overridden the date, it drives the date field, is
+  // highlighted in the note, and gets stripped from the saved note on submit.
+  const detected = useMemo(() => recognizeDate(note), [note]);
+  const active = detected && !dateTouched ? detected : null;
   useEffect(() => {
     if (dateTouched) return;
-    setDate(detected ?? todayIso());
+    setDate(detected?.iso ?? todayIso());
   }, [detected, dateTouched]);
+
+  /** The note we persist: the date phrase removed once it has been recognized. */
+  const cleanedNote = active
+    ? stripDateRange(note, active.start, active.end)
+    : note.trim();
 
   const untilInvalid = Boolean(until) && Boolean(date) && until < date;
   // Without details, a note is all we need. With details, a valid date carries it
@@ -153,14 +162,14 @@ function InteractionForm({
         type,
         date,
         until: cleanUntil,
-        label: note.trim(),
+        label: cleanedNote,
         when: formatInteractionWhen(date, cleanUntil) ?? "Today",
       });
     } else {
       // Simple, fast path: just the free-text note. `date` is today unless the
       // note named one (recognized above), so the entry sorts and ages right.
       onSubmit({
-        label: note.trim(),
+        label: cleanedNote,
         date,
         when: formatInteractionWhen(date) ?? "Today",
       });
@@ -174,10 +183,11 @@ function InteractionForm({
           <Label htmlFor="log-note" className="text-xs text-muted-foreground">
             Interaction
           </Label>
-          <Input
+          <HighlightedInput
             id="log-note"
             autoFocus
             value={note}
+            highlight={active}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -188,13 +198,14 @@ function InteractionForm({
             placeholder="e.g. Coffee yesterday, talked pilot…"
             className="h-9"
           />
-          {detected && !dateTouched ? (
+          {active ? (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Icons.calendar className="size-3.5 text-primary" />
-              Dated <span className="font-medium text-foreground">
-                {formatWhen(detected)}
+              Dated{" "}
+              <span className="font-medium text-foreground">
+                {formatWhen(active.iso)}
               </span>{" "}
-              from your note
+              — the date drops from your note
             </p>
           ) : null}
         </div>

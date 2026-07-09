@@ -69,64 +69,102 @@ function addDays(ref: Date, delta: number): Date {
   return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + delta);
 }
 
+export type DateMatch = {
+  /** Recognized date as ISO `YYYY-MM-DD`. */
+  iso: string;
+  /**
+   * Half-open `[start, end)` range in the source text that produced the date —
+   * includes a leading connector ("on"/"at"/"@") — so the caller can highlight
+   * it in-field and remove the phrase from the saved note.
+   */
+  start: number;
+  end: number;
+};
+
 /**
  * Best-effort natural-language date recognition inside free text, so a logged
  * note like "coffee yesterday" or "call Jun 3" can auto-date itself. Scans for
- * the first phrase it understands (checked in priority order) and returns its
- * ISO date relative to `ref` (default today); returns null when nothing
- * date-like is found.
+ * the first phrase it understands (checked in priority order) and returns the
+ * date (relative to `ref`, default today) together with the text range that
+ * expressed it; returns null when nothing date-like is found.
  *
- * Understands: an explicit ISO date; today/yesterday/tomorrow; "N days/weeks
- * ago"; "last week"; "last/this/next/on <weekday>" and a bare "<weekday>" (the
- * most recent past occurrence); and a month name with a day ("Jun 3",
- * "June 3rd", "3 June") — assumed to be the most recent such date, so a
- * month/day still ahead of today rolls back to last year.
+ * Understands: an explicit ISO date; numeric `M/D/Y` ("3/12/2029", "3-12-29",
+ * month-first); today/yesterday/tomorrow; "N days/weeks ago"; "last week";
+ * "last/this/next/on <weekday>" and a bare "<weekday>" (the most recent past
+ * occurrence); and a month name with a day ("Jun 3", "June 3rd", "3 June") —
+ * assumed to be the most recent such date, so a month/day still ahead of today
+ * rolls back to last year.
  */
-export function recognizeDateInText(
+export function recognizeDate(
   text: string,
   ref: Date = new Date(),
-): string | null {
+): DateMatch | null {
   const t = text.toLowerCase();
   const today = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
 
+  // Absorb a connector immediately before the date ("... on March 12") into the
+  // removed range, then package the hit.
+  const hit = (start: number, end: number, iso: string): DateMatch => {
+    const lead = text.slice(0, start).match(/(^|\s)(on|at|@)\s*$/i);
+    if (lead) start = (lead.index ?? 0) + lead[1].length;
+    return { iso, start, end };
+  };
+  const spanOf = (m: RegExpMatchArray): [number, number] => {
+    const s = m.index ?? 0;
+    return [s, s + m[0].length];
+  };
+
   // Explicit ISO date — trust it verbatim.
-  const isoMatch = t.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  if (isoMatch) {
-    const [, , mm, dd] = isoMatch;
-    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) return isoMatch[0];
+  const isoM = t.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoM && +isoM[2] >= 1 && +isoM[2] <= 12 && +isoM[3] >= 1 && +isoM[3] <= 31) {
+    return hit(...spanOf(isoM), isoM[0]);
   }
 
-  if (/\btoday\b|\btonight\b/.test(t)) return toIso(today);
-  if (/\byesterday\b/.test(t)) return toIso(addDays(today, -1));
-  if (/\btomorrow\b/.test(t)) return toIso(addDays(today, 1));
+  // Numeric month-first date: "3/12/2029", "3-12-29".
+  const num = t.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})\b/);
+  if (num) {
+    const mon = +num[1];
+    const day = +num[2];
+    const year = num[3].length <= 2 ? 2000 + +num[3] : +num[3];
+    if (mon >= 1 && mon <= 12 && day >= 1 && day <= 31) {
+      return hit(...spanOf(num), toIso(new Date(year, mon - 1, day)));
+    }
+  }
+
+  // Relative keywords.
+  for (const [re, delta] of [
+    [/\b(today|tonight)\b/, 0],
+    [/\byesterday\b/, -1],
+    [/\btomorrow\b/, 1],
+    [/\blast\s+week\b/, -7],
+  ] as const) {
+    const m = t.match(re);
+    if (m) return hit(...spanOf(m), toIso(addDays(today, delta)));
+  }
 
   // "3 days ago", "2 weeks ago".
   const ago = t.match(/\b(\d{1,3})\s+(day|days|week|weeks)\s+ago\b/);
   if (ago) {
     const n = Number(ago[1]) * (ago[2].startsWith("week") ? 7 : 1);
-    return toIso(addDays(today, -n));
+    return hit(...spanOf(ago), toIso(addDays(today, -n)));
   }
-  if (/\blast\s+week\b/.test(t)) return toIso(addDays(today, -7));
 
   // "last Tuesday", "next Fri", "on monday", or a bare weekday name.
   const wd = t.match(
     /\b(last|this|next|on\s+)?\s*(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)(?:day|nesday|rsday|urday)?\b/,
   );
   if (wd) {
-    const stem = wd[2];
-    const target = WEEKDAYS.findIndex((d) => d.startsWith(stem.slice(0, 3)));
+    const target = WEEKDAYS.findIndex((d) => d.startsWith(wd[2].slice(0, 3)));
     if (target >= 0) {
       const dow = today.getDay();
       const kind = (wd[1] ?? "").trim();
-      let delta: number;
-      if (kind === "next") {
-        delta = (target - dow + 7) % 7 || 7; // upcoming
-      } else if (kind === "last") {
-        delta = -(((dow - target + 7) % 7) || 7); // strictly prior week
-      } else {
-        delta = -((dow - target + 7) % 7); // most recent (today if same day)
-      }
-      return toIso(addDays(today, delta));
+      const delta =
+        kind === "next"
+          ? (target - dow + 7) % 7 || 7 // upcoming
+          : kind === "last"
+            ? -(((dow - target + 7) % 7) || 7) // strictly prior week
+            : -((dow - target + 7) % 7); // most recent (today if same day)
+      return hit(...spanOf(wd), toIso(addDays(today, delta)));
     }
   }
 
@@ -137,7 +175,7 @@ export function recognizeDateInText(
     "(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\\.?";
   const dayRe = "(\\d{1,2})(?:st|nd|rd|th)?";
   const md =
-    t.match(new RegExp(`\\b${monthRe}\\.?\\s+${dayRe}\\b`)) ??
+    t.match(new RegExp(`\\b${monthRe}\\s+${dayRe}\\b`)) ??
     t.match(new RegExp(`\\b${dayRe}\\s+${monthRe}\\b`));
   if (md) {
     // Group order differs between the two shapes; find the numeric + month parts.
@@ -151,11 +189,28 @@ export function recognizeDateInText(
       let year = today.getFullYear();
       let candidate = new Date(year, month, day);
       if (candidate > today) candidate = new Date(--year, month, day); // most recent past
-      return toIso(candidate);
+      return hit(...spanOf(md), toIso(candidate));
     }
   }
 
   return null;
+}
+
+/**
+ * Remove a recognized date range from a note and tidy the seam — collapse the
+ * doubled space left behind, pull punctuation back against the preceding word,
+ * and trim stray separators from the ends. `"Coffee on March 12"` → `"Coffee"`.
+ */
+export function stripDateRange(
+  text: string,
+  start: number,
+  end: number,
+): string {
+  return (text.slice(0, start) + text.slice(end))
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/^[\s,–-]+|[\s,–-]+$/g, "")
+    .trim();
 }
 
 /**

@@ -17,8 +17,9 @@ import {
   formatInteractionWhen,
   formatMonthDay,
   monthDayToIso,
-  recognizeDateInText,
+  recognizeDate,
   sortInteractions,
+  stripDateRange,
   todayIso,
 } from "@/lib/data/format";
 import {
@@ -28,6 +29,7 @@ import {
   updateInteractions,
 } from "@/lib/data/actions";
 import { LogInteractionDialog } from "@/components/app/log-interaction-dialog";
+import { HighlightedInput } from "@/components/app/highlighted-input";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import { ConnectionsList } from "@/components/app/list-contexts";
 import {
@@ -319,14 +321,20 @@ function PanelBody({
     setLogOpen(false);
   };
 
+  // A date phrase recognized in the inline note ("coffee yesterday", "call Jun
+  // 3"), highlighted as you type and dropped from the saved note on submit.
+  const logDetected = recognizeDate(logText);
+
   /**
    * The fast path: log the inline free-text note. We stamp today's date unless
-   * the note names one ("coffee yesterday", "call Jun 3"), which we recognize.
+   * the note names one, which we recognize and strip out of the saved note.
    */
   const quickAdd = () => {
-    const label = logText.trim();
-    if (!label) return;
-    const date = recognizeDateInText(label) ?? todayIso();
+    if (!logText.trim()) return;
+    const date = logDetected?.iso ?? todayIso();
+    const label = logDetected
+      ? stripDateRange(logText, logDetected.start, logDetected.end)
+      : logText.trim();
     addLog({ label, date, when: formatInteractionWhen(date) ?? "Today" });
   };
 
@@ -604,9 +612,10 @@ function PanelBody({
               {logOpen ? (
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-1.5">
-                    <Input
+                    <HighlightedInput
                       autoFocus
                       value={logText}
+                      highlight={logDetected}
                       onChange={(e) => setLogText(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -627,18 +636,16 @@ function PanelBody({
                       <Icons.check className="size-4" />
                     </Button>
                   </div>
-                  {(() => {
-                    const detected = recognizeDateInText(logText);
-                    return detected ? (
-                      <p className="flex items-center gap-1.5 px-0.5 text-xs text-muted-foreground">
-                        <Icons.calendar className="size-3.5 text-primary" />
-                        Will date this{" "}
-                        <span className="font-medium text-foreground">
-                          {formatInteractionWhen(detected)}
-                        </span>
-                      </p>
-                    ) : null;
-                  })()}
+                  {logDetected ? (
+                    <p className="flex items-center gap-1.5 px-0.5 text-xs text-muted-foreground">
+                      <Icons.calendar className="size-3.5 text-primary" />
+                      Dated{" "}
+                      <span className="font-medium text-foreground">
+                        {formatInteractionWhen(logDetected.iso)}
+                      </span>{" "}
+                      — drops from your note
+                    </p>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
