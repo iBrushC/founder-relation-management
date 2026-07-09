@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icons } from "@/lib/icons";
 import {
   INTERACTION_TYPES,
@@ -8,7 +8,12 @@ import {
   type Interaction,
   type InteractionType,
 } from "@/lib/data";
-import { formatInteractionWhen, todayIso } from "@/lib/data/format";
+import {
+  formatInteractionWhen,
+  formatWhen,
+  recognizeDateInText,
+  todayIso,
+} from "@/lib/data/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +47,7 @@ export function LogInteractionDialog({
   onSubmit,
   initialNote = "",
   initialDetailsOpen = false,
+  initialEntry,
 }: {
   /** Whose interaction this is — shown in the dialog description for context. */
   connectionName?: string;
@@ -52,7 +58,13 @@ export function LogInteractionDialog({
   initialNote?: string;
   /** Open with the details section already expanded. */
   initialDetailsOpen?: boolean;
+  /**
+   * When set, the dialog edits this existing interaction: every field is
+   * prepopulated and `onSubmit` receives the revised entry (to replace it).
+   */
+  initialEntry?: Interaction;
 }) {
+  const editing = Boolean(initialEntry);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -61,19 +73,21 @@ export function LogInteractionDialog({
             <span className="grid size-7 place-items-center rounded-md tone-green">
               <Icons.message className="size-4" />
             </span>
-            Log interaction
+            {editing ? "Edit interaction" : "Log interaction"}
           </DialogTitle>
           <DialogDescription>
             {connectionName
-              ? `Record a touchpoint with ${connectionName}.`
-              : "Record a touchpoint."}
+              ? `${editing ? "Update this" : "Record a"} touchpoint with ${connectionName}.`
+              : `${editing ? "Update this" : "Record a"} touchpoint.`}
           </DialogDescription>
         </DialogHeader>
 
         {/* Remounts each time the dialog opens, re-seeding the fields. */}
         <InteractionForm
+          initialEntry={initialEntry}
           initialNote={initialNote}
           initialDetailsOpen={initialDetailsOpen}
+          submitLabel={editing ? "Save changes" : "Log interaction"}
           onCancel={() => onOpenChange(false)}
           onSubmit={(entry) => {
             onSubmit(entry);
@@ -86,21 +100,43 @@ export function LogInteractionDialog({
 }
 
 function InteractionForm({
+  initialEntry,
   initialNote,
   initialDetailsOpen,
+  submitLabel,
   onSubmit,
   onCancel,
 }: {
+  /** An existing interaction whose fields seed the form (edit mode). */
+  initialEntry?: Interaction;
   initialNote: string;
   initialDetailsOpen: boolean;
+  submitLabel: string;
   onSubmit: (entry: Interaction) => void;
   onCancel: () => void;
 }) {
-  const [note, setNote] = useState(initialNote);
-  const [detailsOpen, setDetailsOpen] = useState(initialDetailsOpen);
-  const [type, setType] = useState<InteractionType>("Coffee");
-  const [date, setDate] = useState(todayIso());
-  const [until, setUntil] = useState("");
+  // Editing an existing entry expands details so every stored field is visible
+  // and adjustable; creating from the panel honours the passed-in flag.
+  const [note, setNote] = useState(initialEntry?.label ?? initialNote);
+  const [detailsOpen, setDetailsOpen] = useState(
+    initialDetailsOpen || Boolean(initialEntry),
+  );
+  const [type, setType] = useState<InteractionType>(
+    initialEntry?.type ?? "Coffee",
+  );
+  const [date, setDate] = useState(initialEntry?.date ?? todayIso());
+  const [until, setUntil] = useState(initialEntry?.until ?? "");
+  // Once the user picks a date by hand (or when we open onto an existing
+  // entry's saved date), stop auto-driving the date from the note text.
+  const [dateTouched, setDateTouched] = useState(Boolean(initialEntry));
+
+  // Recognize a date phrase in the note ("coffee yesterday", "call Jun 3") and,
+  // until the user overrides the date, keep the date field in step with it.
+  const detected = useMemo(() => recognizeDateInText(note), [note]);
+  useEffect(() => {
+    if (dateTouched) return;
+    setDate(detected ?? todayIso());
+  }, [detected, dateTouched]);
 
   const untilInvalid = Boolean(until) && Boolean(date) && until < date;
   // Without details, a note is all we need. With details, a valid date carries it
@@ -121,13 +157,12 @@ function InteractionForm({
         when: formatInteractionWhen(date, cleanUntil) ?? "Today",
       });
     } else {
-      // Simple, fast path: just the free-text note. We still stamp today's date
-      // so it sorts correctly and its label ages instead of freezing at "Today".
-      const today = todayIso();
+      // Simple, fast path: just the free-text note. `date` is today unless the
+      // note named one (recognized above), so the entry sorts and ages right.
       onSubmit({
         label: note.trim(),
-        date: today,
-        when: formatInteractionWhen(today) ?? "Today",
+        date,
+        when: formatInteractionWhen(date) ?? "Today",
       });
     }
   };
@@ -150,9 +185,18 @@ function InteractionForm({
                 submit();
               }
             }}
-            placeholder="e.g. Coffee, talked pilot…"
+            placeholder="e.g. Coffee yesterday, talked pilot…"
             className="h-9"
           />
+          {detected && !dateTouched ? (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Icons.calendar className="size-3.5 text-primary" />
+              Dated <span className="font-medium text-foreground">
+                {formatWhen(detected)}
+              </span>{" "}
+              from your note
+            </p>
+          ) : null}
         </div>
 
         {detailsOpen ? (
@@ -200,7 +244,10 @@ function InteractionForm({
                   type="date"
                   value={date}
                   max={until || undefined}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setDateTouched(true);
+                  }}
                   className="h-9"
                 />
               </div>
@@ -240,7 +287,7 @@ function InteractionForm({
           Cancel
         </Button>
         <Button onClick={submit} disabled={!canSave}>
-          <Icons.check className="size-4" /> Log interaction
+          <Icons.check className="size-4" /> {submitLabel}
         </Button>
       </DialogFooter>
     </>

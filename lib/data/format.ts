@@ -49,11 +49,113 @@ export function formatWhen(iso: string): string {
   return formatMonthDay(iso);
 }
 
-/** Today as an ISO `YYYY-MM-DD` string (local time). */
-export function todayIso(): string {
-  const d = new Date();
+/** An arbitrary `Date` as an ISO `YYYY-MM-DD` string (local time). */
+function toIso(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Today as an ISO `YYYY-MM-DD` string (local time). */
+export function todayIso(): string {
+  return toIso(new Date());
+}
+
+const WEEKDAYS = [
+  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+] as const;
+
+/** `ref` shifted by `delta` whole days (local), as a fresh `Date`. */
+function addDays(ref: Date, delta: number): Date {
+  return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + delta);
+}
+
+/**
+ * Best-effort natural-language date recognition inside free text, so a logged
+ * note like "coffee yesterday" or "call Jun 3" can auto-date itself. Scans for
+ * the first phrase it understands (checked in priority order) and returns its
+ * ISO date relative to `ref` (default today); returns null when nothing
+ * date-like is found.
+ *
+ * Understands: an explicit ISO date; today/yesterday/tomorrow; "N days/weeks
+ * ago"; "last week"; "last/this/next/on <weekday>" and a bare "<weekday>" (the
+ * most recent past occurrence); and a month name with a day ("Jun 3",
+ * "June 3rd", "3 June") — assumed to be the most recent such date, so a
+ * month/day still ahead of today rolls back to last year.
+ */
+export function recognizeDateInText(
+  text: string,
+  ref: Date = new Date(),
+): string | null {
+  const t = text.toLowerCase();
+  const today = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+
+  // Explicit ISO date — trust it verbatim.
+  const isoMatch = t.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    const [, , mm, dd] = isoMatch;
+    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) return isoMatch[0];
+  }
+
+  if (/\btoday\b|\btonight\b/.test(t)) return toIso(today);
+  if (/\byesterday\b/.test(t)) return toIso(addDays(today, -1));
+  if (/\btomorrow\b/.test(t)) return toIso(addDays(today, 1));
+
+  // "3 days ago", "2 weeks ago".
+  const ago = t.match(/\b(\d{1,3})\s+(day|days|week|weeks)\s+ago\b/);
+  if (ago) {
+    const n = Number(ago[1]) * (ago[2].startsWith("week") ? 7 : 1);
+    return toIso(addDays(today, -n));
+  }
+  if (/\blast\s+week\b/.test(t)) return toIso(addDays(today, -7));
+
+  // "last Tuesday", "next Fri", "on monday", or a bare weekday name.
+  const wd = t.match(
+    /\b(last|this|next|on\s+)?\s*(sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)(?:day|nesday|rsday|urday)?\b/,
+  );
+  if (wd) {
+    const stem = wd[2];
+    const target = WEEKDAYS.findIndex((d) => d.startsWith(stem.slice(0, 3)));
+    if (target >= 0) {
+      const dow = today.getDay();
+      const kind = (wd[1] ?? "").trim();
+      let delta: number;
+      if (kind === "next") {
+        delta = (target - dow + 7) % 7 || 7; // upcoming
+      } else if (kind === "last") {
+        delta = -(((dow - target + 7) % 7) || 7); // strictly prior week
+      } else {
+        delta = -((dow - target + 7) % 7); // most recent (today if same day)
+      }
+      return toIso(addDays(today, delta));
+    }
+  }
+
+  // "Jun 3", "June 3rd", "3 Jun" — pick the most recent matching date. The month
+  // is a full name or a known abbreviation only (longest first), so ordinary
+  // words that merely start with those letters ("market", "decided") don't match.
+  const monthRe =
+    "(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\\.?";
+  const dayRe = "(\\d{1,2})(?:st|nd|rd|th)?";
+  const md =
+    t.match(new RegExp(`\\b${monthRe}\\.?\\s+${dayRe}\\b`)) ??
+    t.match(new RegExp(`\\b${dayRe}\\s+${monthRe}\\b`));
+  if (md) {
+    // Group order differs between the two shapes; find the numeric + month parts.
+    const nums = md.slice(1).filter((g) => g && /^\d+$/.test(g));
+    const monStr = md.slice(1).find((g) => g && /^[a-z]/.test(g));
+    const day = nums.length ? Number(nums[0]) : NaN;
+    const month = monStr
+      ? MONTHS.findIndex((m) => m.toLowerCase() === monStr.slice(0, 3))
+      : -1;
+    if (month >= 0 && day >= 1 && day <= 31) {
+      let year = today.getFullYear();
+      let candidate = new Date(year, month, day);
+      if (candidate > today) candidate = new Date(--year, month, day); // most recent past
+      return toIso(candidate);
+    }
+  }
+
+  return null;
 }
 
 /**

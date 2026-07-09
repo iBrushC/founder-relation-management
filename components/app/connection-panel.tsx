@@ -17,6 +17,7 @@ import {
   formatInteractionWhen,
   formatMonthDay,
   monthDayToIso,
+  recognizeDateInText,
   sortInteractions,
   todayIso,
 } from "@/lib/data/format";
@@ -238,6 +239,7 @@ function PanelBody({
   const [logOpen, setLogOpen] = useState(false);
   const [logText, setLogText] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState<number | null>(null);
   const [extraOpen, setExtraOpen] = useState(false);
 
   const setField =
@@ -317,12 +319,15 @@ function PanelBody({
     setLogOpen(false);
   };
 
-  /** The fast path: log the inline free-text note, stamped with today's date. */
+  /**
+   * The fast path: log the inline free-text note. We stamp today's date unless
+   * the note names one ("coffee yesterday", "call Jun 3"), which we recognize.
+   */
   const quickAdd = () => {
     const label = logText.trim();
     if (!label) return;
-    const today = todayIso();
-    addLog({ label, date: today, when: formatInteractionWhen(today) ?? "Today" });
+    const date = recognizeDateInText(label) ?? todayIso();
+    addLog({ label, date, when: formatInteractionWhen(date) ?? "Today" });
   };
 
   const deleteLog = (index: number) => {
@@ -334,6 +339,28 @@ function PanelBody({
       last: top ? (formatInteractionWhen(top.date, top.until) ?? top.when) : current.last,
     };
     persist(next, () => updateInteractions(current.id, timeline));
+  };
+
+  /** Open the log dialog prepopulated with an existing entry, to edit it. */
+  const editLog = (index: number) => {
+    setEditingLog(index);
+    setDetailsOpen(true);
+  };
+
+  const updateLog = (index: number, entry: Interaction) => {
+    // Re-sort in case the edited date moved the entry; keep `last` in step.
+    const timeline = sortInteractions(
+      current.timeline.map((it, i) => (i === index ? entry : it)),
+    );
+    const top = timeline[0];
+    const next: Connection = {
+      ...current,
+      timeline,
+      last: top ? (formatInteractionWhen(top.date, top.until) ?? top.when) : current.last,
+    };
+    persist(next, () => updateInteractions(current.id, timeline));
+    setEditingLog(null);
+    setDetailsOpen(false);
   };
 
   return (
@@ -587,7 +614,7 @@ function PanelBody({
                           quickAdd();
                         }
                       }}
-                      placeholder="e.g. Coffee, talked pilot…"
+                      placeholder="e.g. Coffee yesterday, talked pilot…"
                       className="h-8"
                     />
                     <Button
@@ -600,6 +627,18 @@ function PanelBody({
                       <Icons.check className="size-4" />
                     </Button>
                   </div>
+                  {(() => {
+                    const detected = recognizeDateInText(logText);
+                    return detected ? (
+                      <p className="flex items-center gap-1.5 px-0.5 text-xs text-muted-foreground">
+                        <Icons.calendar className="size-3.5 text-primary" />
+                        Will date this{" "}
+                        <span className="font-medium text-foreground">
+                          {formatInteractionWhen(detected)}
+                        </span>
+                      </p>
+                    ) : null;
+                  })()}
                   <Button
                     type="button"
                     variant="ghost"
@@ -612,50 +651,56 @@ function PanelBody({
                 </div>
               ) : null}
               {current.timeline.length > 0 ? (
-                <ol className="flex flex-col gap-1.5">
+                <ol className="flex flex-col gap-2">
                   {current.timeline.map((item, i) => {
                     const Icon = item.type
                       ? Icons[interactionTypeIcon[item.type]]
-                      : null;
-                    // Headline: the type; the note (if any) sits beside it. Older
-                    // free-text entries fall back to their note as the headline.
-                    const headline = item.type ?? item.label ?? "Interaction";
-                    const detail = item.type ? item.label : "";
+                      : Icons.message;
+                    // Header: the touchpoint type; the note becomes the body
+                    // paragraph. Older free-text entries have no type, so they
+                    // read as a generic "Interaction" over their note.
+                    const title = item.type ?? "Interaction";
+                    const when =
+                      formatInteractionWhen(item.date, item.until) ?? item.when;
                     return (
                       <li
                         key={i}
-                        className="group flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2"
+                        className="group flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5"
                       >
-                        {Icon ? (
-                          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-                            <Icon className="size-4" />
+                        <div className="flex items-center gap-2">
+                          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                            <Icon className="size-3.5" />
                           </span>
-                        ) : (
-                          <span className="h-7 w-1 shrink-0 rounded-full bg-primary/55" />
-                        )}
-                        <div className="min-w-0 flex-1 leading-tight">
-                          <div className="truncate text-sm font-medium">
-                            {headline}
-                            {detail ? (
-                              <span className="font-normal text-muted-foreground">
-                                {" · "}
-                                {detail}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatInteractionWhen(item.date, item.until) ??
-                              item.when}
+                          <span className="truncate text-sm font-medium">
+                            {title}
+                          </span>
+                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                            {when}
+                          </span>
+                          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              type="button"
+                              aria-label="Edit interaction"
+                              onClick={() => editLog(i)}
+                              className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+                            >
+                              <Icons.edit className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete interaction"
+                              onClick={() => deleteLog(i)}
+                              className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+                            >
+                              <Icons.x className="size-3.5" />
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          aria-label="Delete interaction"
-                          onClick={() => deleteLog(i)}
-                          className="grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
-                        >
-                          <Icons.x className="size-3.5" />
-                        </button>
+                        {item.label ? (
+                          <p className="text-sm leading-snug text-muted-foreground whitespace-pre-wrap">
+                            {item.label}
+                          </p>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -699,10 +744,20 @@ function PanelBody({
       <LogInteractionDialog
         connectionName={current.name}
         open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        onSubmit={addLog}
-        initialNote={logText}
+        onOpenChange={(o) => {
+          setDetailsOpen(o);
+          if (!o) setEditingLog(null);
+        }}
+        onSubmit={
+          editingLog != null
+            ? (entry) => updateLog(editingLog, entry)
+            : addLog
+        }
+        initialNote={editingLog != null ? "" : logText}
         initialDetailsOpen
+        initialEntry={
+          editingLog != null ? current.timeline[editingLog] : undefined
+        }
       />
     </>
   );
