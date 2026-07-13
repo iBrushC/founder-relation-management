@@ -49,6 +49,25 @@ export function formatWhen(iso: string): string {
   return formatMonthDay(iso);
 }
 
+export type DayBucket = "today" | "tomorrow" | "yesterday" | "other";
+
+/**
+ * Which of the three tracked day-windows an ISO date falls in, else `"other"` —
+ * the homepage Updates feed groups on this (today, then tomorrow, then yesterday).
+ */
+export function dayBucket(iso: string): DayBucket {
+  switch (daysUntil(iso)) {
+    case 0:
+      return "today";
+    case 1:
+      return "tomorrow";
+    case -1:
+      return "yesterday";
+    default:
+      return "other";
+  }
+}
+
 /** An arbitrary `Date` as an ISO `YYYY-MM-DD` string (local time). */
 function toIso(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");

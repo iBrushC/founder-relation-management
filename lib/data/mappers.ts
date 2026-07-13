@@ -176,6 +176,7 @@ export function toUpdate(row: UpdatesViewRow): Update {
     title: row.title,
     kind: row.kind,
     tone: row.tone,
+    date: row.sort_at.slice(0, 10),
     when: formatWhen(row.sort_at),
     detail: row.detail ?? "",
     connectionIds: row.connection_ids ?? [],

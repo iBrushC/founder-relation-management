@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection, EventItem } from "@/lib/data";
@@ -66,6 +67,19 @@ export function EventsView({
   // Use the page's optimistic list when present; otherwise render props statically.
   const list = EventsList.useOptional() ?? staticList(events ?? []);
   const rows = list.items;
+
+  // Deep link from global search: `/events?focus=<id>` opens that event.
+  // Adjusted during render (React's recommended alternative to an effect).
+  const searchParams = useSearchParams();
+  const focus = showControls ? searchParams.get("focus") : null;
+  const [prevFocus, setPrevFocus] = useState<string | null>(null);
+  if (focus !== prevFocus) {
+    setPrevFocus(focus);
+    if (focus && rows.some((e) => e.id === focus)) {
+      setIntent("view");
+      setSelectedId(focus);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

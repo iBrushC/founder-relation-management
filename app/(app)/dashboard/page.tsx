@@ -37,7 +37,9 @@ export default async function DashboardPage() {
         <Section
           title="Updates"
           action={
-            <span className="text-xs text-muted-foreground">Next 30 days</span>
+            <span className="text-xs text-muted-foreground">
+              Today, tomorrow &amp; yesterday
+            </span>
           }
         >
           <UpdatesView

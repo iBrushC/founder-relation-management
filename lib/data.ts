@@ -111,6 +111,8 @@ export type Update = {
   title: string;
   kind: string;
   tone: Tone;
+  /** The day this update lands on, ISO `YYYY-MM-DD` — drives day grouping. */
+  date: string;
   when: string;
   /** Longer context shown in the update detail panel. */
   detail: string;
@@ -440,6 +442,7 @@ export const updates: Update[] = [
     title: "Send pitch deck to Alder Ventures",
     kind: "Deadline",
     tone: "red",
+    date: "2026-07-14",
     when: "Tomorrow",
     detail:
       "Sam asked for the deck by Friday plus a 3-line traction update. Pull the latest numbers from the Lumen dashboard before sending.",
@@ -452,6 +455,7 @@ export const updates: Update[] = [
     title: "Coffee check-in with Priya Raman",
     kind: "Check-in",
     tone: "blue",
+    date: "2026-07-15",
     when: "in 2 days",
     detail:
       "Follow up on her onboarding-flow feedback and see if she'd co-sign the Northwind pilot scope.",
@@ -464,6 +468,7 @@ export const updates: Update[] = [
     title: "David Okafor's birthday",
     kind: "Birthday",
     tone: "purple",
+    date: "2026-07-09",
     when: "Jul 9",
     detail:
       "Grab dinner with your co-founder — he's been heads-down on the eval dataset. Good moment to unblock him too.",
@@ -476,6 +481,7 @@ export const updates: Update[] = [
     title: "Weekly sync — Lumen",
     kind: "Meeting",
     tone: "green",
+    date: "2026-07-17",
     when: "Fri 3:00",
     detail:
       "Standing team sync. Agenda: onboarding v2 ship date, eval dataset status, and the Alder deck.",
@@ -488,6 +494,7 @@ export const updates: Update[] = [
     title: "Fellowship decisions announced",
     kind: "Milestone",
     tone: "amber",
+    date: "2026-07-31",
     when: "Jul 31",
     detail:
       "Founders Fellowship decisions go out end of month. Make sure Elena has the updated one-pager well before then.",

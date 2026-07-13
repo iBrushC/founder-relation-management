@@ -17,7 +17,7 @@ import {
 } from "@/lib/data/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { HighlightedInput } from "@/components/app/highlighted-input";
+import { HighlightedTextarea } from "@/components/app/highlighted-textarea";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -183,20 +183,22 @@ function InteractionForm({
           <Label htmlFor="log-note" className="text-xs text-muted-foreground">
             Interaction
           </Label>
-          <HighlightedInput
+          <HighlightedTextarea
             id="log-note"
             autoFocus
             value={note}
             highlight={active}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // Enter saves for a quick single-line log; Shift+Enter drops to a
+              // new line for anyone jotting something longer.
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submit();
               }
             }}
             placeholder="e.g. Coffee yesterday, talked pilot…"
-            className="h-9"
+            className="min-h-24"
           />
           {active ? (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

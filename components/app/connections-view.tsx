@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { Connection, Interaction, Tag as TagType } from "@/lib/data";
@@ -66,6 +67,21 @@ export function ConnectionsView({
   // Use the page's optimistic list when present; otherwise render the props statically.
   const list = ConnectionsList.useOptional() ?? staticList(connections ?? []);
   const rows = list.items;
+
+  // Deep link from global search: `/connections?focus=<id>` opens that person.
+  // Adjusted during render (React's recommended alternative to an effect):
+  // when the focused id changes, open its panel — a fresh search opens the new
+  // person, while closing the panel on the same id isn't undone by re-renders.
+  const searchParams = useSearchParams();
+  const focus = showControls ? searchParams.get("focus") : null;
+  const [prevFocus, setPrevFocus] = useState<string | null>(null);
+  if (focus !== prevFocus) {
+    setPrevFocus(focus);
+    if (focus && rows.some((c) => c.id === focus)) {
+      setIntent("view");
+      setSelectedId(focus);
+    }
+  }
 
   const allTags = useMemo(() => {
     const set = new Set<string>();

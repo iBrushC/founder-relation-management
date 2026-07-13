@@ -29,7 +29,7 @@ import {
   updateInteractions,
 } from "@/lib/data/actions";
 import { LogInteractionDialog } from "@/components/app/log-interaction-dialog";
-import { HighlightedInput } from "@/components/app/highlighted-input";
+import { HighlightedTextarea } from "@/components/app/highlighted-textarea";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import { ConnectionsList } from "@/components/app/list-contexts";
 import {
@@ -611,31 +611,21 @@ function PanelBody({
             >
               {logOpen ? (
                 <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <HighlightedInput
-                      autoFocus
-                      value={logText}
-                      highlight={logDetected}
-                      onChange={(e) => setLogText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          quickAdd();
-                        }
-                      }}
-                      placeholder="e.g. Coffee yesterday, talked pilot…"
-                      className="h-8"
-                    />
-                    <Button
-                      size="icon-sm"
-                      variant="secondary"
-                      onClick={quickAdd}
-                      disabled={!logText.trim()}
-                      aria-label="Add interaction"
-                    >
-                      <Icons.check className="size-4" />
-                    </Button>
-                  </div>
+                  <HighlightedTextarea
+                    autoFocus
+                    value={logText}
+                    highlight={logDetected}
+                    onChange={(e) => setLogText(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter saves; Shift+Enter starts a new line for a longer note.
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        quickAdd();
+                      }
+                    }}
+                    placeholder="e.g. Coffee yesterday, talked pilot…"
+                    className="min-h-20"
+                  />
                   {logDetected ? (
                     <p className="flex items-center gap-1.5 px-0.5 text-xs text-muted-foreground">
                       <Icons.calendar className="size-3.5 text-primary" />
@@ -646,15 +636,25 @@ function PanelBody({
                       — drops from your note
                     </p>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 self-start px-2 text-xs text-muted-foreground"
-                    onClick={() => setDetailsOpen(true)}
-                  >
-                    <Icons.plus className="size-3.5" /> Add date &amp; type
-                  </Button>
+                  <div className="flex items-center justify-between">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-muted-foreground"
+                      onClick={() => setDetailsOpen(true)}
+                    >
+                      <Icons.plus className="size-3.5" /> Add date &amp; type
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={quickAdd}
+                      disabled={!logText.trim()}
+                    >
+                      <Icons.check className="size-4" /> Add
+                    </Button>
+                  </div>
                 </div>
               ) : null}
               {current.timeline.length > 0 ? (

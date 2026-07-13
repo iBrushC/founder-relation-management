@@ -1,14 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
 import type { Connection, Project, Update } from "@/lib/data";
-import { UpdateRow } from "@/components/app/rows";
+import { dayBucket, type DayBucket } from "@/lib/data/format";
 import { InitialsAvatar, Tag } from "@/components/app/primitives";
-import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Sheet,
   SheetContent,
@@ -17,7 +24,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-const PAGE_SIZE = 5;
+// The three day-windows we surface, in the order they render.
+const GROUPS: { key: Exclude<DayBucket, "other">; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "yesterday", label: "Yesterday" },
+];
 
 export function UpdatesView({
   updates,
@@ -29,48 +41,85 @@ export function UpdatesView({
   projectsById: Record<string, Project>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
   const selected = updates.find((u) => u.id === selectedId) ?? null;
 
-  const pageCount = Math.max(1, Math.ceil(updates.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const start = currentPage * PAGE_SIZE;
-  const visible = updates.slice(start, start + PAGE_SIZE);
+  // Bucket once, keep only the groups that have something to show.
+  const grouped = GROUPS.map((g) => ({
+    ...g,
+    items: updates.filter((u) => dayBucket(u.date) === g.key),
+  })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {visible.map((u) => (
-        <UpdateRow key={u.id} update={u} onClick={() => setSelectedId(u.id)} />
-      ))}
-
-      {updates.length > PAGE_SIZE ? (
-        <div className="mt-1.5 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            {start + 1}–{Math.min(start + PAGE_SIZE, updates.length)} of{" "}
-            {updates.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={currentPage === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-            >
-              <Icons.chevronRight className="size-3.5 rotate-180" />
-              Prev
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-            >
-              Next
-              <Icons.chevronRight className="size-3.5" />
-            </Button>
-          </div>
-        </div>
-      ) : null}
+    <>
+      <div className="overflow-hidden rounded-md border border-border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="h-9 pl-4 font-heading text-[11px] tracking-wider uppercase">
+                Update
+              </TableHead>
+              <TableHead className="h-9 font-heading text-[11px] tracking-wider uppercase">
+                Kind
+              </TableHead>
+              <TableHead className="h-9 w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {grouped.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={3}
+                  className="py-10 text-center text-sm text-muted-foreground"
+                >
+                  Nothing for today, tomorrow, or yesterday.
+                </TableCell>
+              </TableRow>
+            ) : (
+              grouped.map((group) => (
+                <Fragment key={group.key}>
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={3} className="bg-muted/40 py-1.5 pl-4">
+                      <span className="eyebrow text-muted-foreground">
+                        {group.label}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                  {group.items.map((u) => {
+                    const Icon = Icons[u.icon];
+                    return (
+                      <TableRow
+                        key={u.id}
+                        onClick={() => setSelectedId(u.id)}
+                        className="cursor-pointer"
+                      >
+                        <TableCell className="py-2 pl-4">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className={cn(
+                                "grid size-8 shrink-0 place-items-center rounded-md",
+                                toneBg[u.tone],
+                              )}
+                            >
+                              <Icon className="size-4" />
+                            </span>
+                            <span className="font-medium">{u.title}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Tag label={u.kind} tone={u.tone} />
+                        </TableCell>
+                        <TableCell className="pr-3 text-right">
+                          <Icons.chevronRight className="inline size-4 text-muted-foreground/60" />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </Fragment>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <UpdatePanel
         update={selected}
@@ -79,7 +128,7 @@ export function UpdatesView({
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
       />
-    </div>
+    </>
   );
 }
 
