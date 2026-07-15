@@ -445,6 +445,31 @@ export async function removeEvent(id: string): Promise<ActionResult> {
   });
 }
 
+/**
+ * Link an existing connection to an event ("people met" at that event).
+ * Idempotent on the composite PK — safe to call for an already-linked pair.
+ * (Until now this was only done inside the seeder; Quick Add needs it as a
+ * reusable action.)
+ */
+export async function linkEventConnection(
+  eventId: string,
+  connectionId: string,
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(eventId).success) return fail(BAD_ID);
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  const user = await verifySession();
+  return run(async () => {
+    await withUserRLS((tx) =>
+      tx
+        .insert(eventParticipants)
+        .values({ ownerId: user.userId, eventId, connectionId })
+        .onConflictDoNothing(),
+    );
+    revalidatePath("/events");
+    revalidatePath("/");
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /*  Edits — in-place updates to existing rows                          */
 /* ------------------------------------------------------------------ */

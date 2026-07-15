@@ -1,6 +1,6 @@
 import { Icons } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
-import { GeneralAdd } from "@/components/app/general-add";
+import { QuickAdd } from "@/components/app/quick-add";
 import { GlobalSearch } from "@/components/app/global-search";
 
 /** App-wide top bar: a centered global search plus quick actions. */
@@ -12,7 +12,7 @@ export function TopBar() {
       <GlobalSearch />
 
       <div className="flex items-center justify-end gap-2">
-        <GeneralAdd />
+        <QuickAdd />
         <Button
           variant="ghost"
           size="icon"

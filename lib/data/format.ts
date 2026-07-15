@@ -79,6 +79,37 @@ export function todayIso(): string {
   return toIso(new Date());
 }
 
+/**
+ * Today's calendar date and weekday **in a specific IANA timezone** (e.g.
+ * "America/Los_Angeles"). Server clocks usually run in UTC, so `todayIso()` can
+ * report the wrong calendar day for a user a few hours off — this pins "today"
+ * to the user's own zone. Falls back to the runtime's local zone if `timeZone`
+ * is missing or invalid.
+ */
+export function todayInZone(timeZone?: string): { iso: string; weekday: string } {
+  const now = new Date();
+  const build = (tz?: string) => {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        weekday: "long",
+      })
+        .formatToParts(now)
+        .map((part) => [part.type, part.value]),
+    );
+    return { iso: `${p.year}-${p.month}-${p.day}`, weekday: p.weekday };
+  };
+  try {
+    return build(timeZone);
+  } catch {
+    // Invalid timeZone string — fall back to the runtime's local date.
+    return build(undefined);
+  }
+}
+
 const WEEKDAYS = [
   "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
 ] as const;
