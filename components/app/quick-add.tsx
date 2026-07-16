@@ -5,21 +5,21 @@ import { Icons } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { interpretQuickAdd, applyQuickAdd } from "@/lib/data/quick-add-actions";
-import type { ResolvedPlan } from "@/lib/ai/quick-add";
+import { runQuickAdd } from "@/lib/data/quick-add-actions";
+import type { QuickAddResult } from "@/lib/ai/quick-add";
 
 /**
  * AI Quick Add. A search-bar-style popover: type one line of plain language
- * ("Met Ramsey Shils for coffee"), the model interprets it, and a small panel
- * previews exactly what will be filed. Nothing is written until you confirm — a
- * safety net for the small parsing model — and it can only add or edit, never
- * delete. On an ambiguous request it asks you to clarify instead of guessing.
+ * ("Met Ramsey Shils for coffee"), and an agent files it — reading and writing
+ * your CRM through tools in a single pass. It can only add or edit, never
+ * delete. When it files something we show exactly what landed; on an ambiguous
+ * request it comes back with a question instead of guessing.
  */
 
 type Phase =
   | { name: "idle" }
-  | { name: "interpreting" }
-  | { name: "preview"; plan: ResolvedPlan };
+  | { name: "running" }
+  | { name: "done"; result: QuickAddResult };
 
 function Spinner() {
   return (
@@ -35,7 +35,7 @@ export function QuickAdd() {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const busy = phase.name === "interpreting";
+  const busy = phase.name === "running";
 
   const reset = useCallback(() => {
     setText("");
@@ -63,43 +63,28 @@ export function QuickAdd() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open, busy, close]);
 
-  async function interpret() {
+  async function submit() {
     const clean = text.trim();
     if (!clean) return;
-    setPhase({ name: "interpreting" });
-    const res = await interpretQuickAdd(clean);
+    setPhase({ name: "running" });
+    const res = await runQuickAdd(clean);
     if (!res.ok) {
-      toast({ variant: "error", title: "Couldn't read that", description: res.error });
+      toast({ variant: "error", title: "Couldn't add that", description: res.error });
       setPhase({ name: "idle" });
       return;
     }
-    setPhase({ name: "preview", plan: res.data! });
-  }
-
-  function confirm(plan: ResolvedPlan) {
-    // Optimistic: close and confirm immediately, then persist in the background.
-    // `applyQuickAdd` revalidates the affected pages on success; a failure
-    // surfaces as an error toast so the user knows it didn't stick.
-    const lines = plan.summary;
-    close();
-    toast({
-      variant: "success",
-      title: lines.length > 1 ? `Added ${lines.length} things` : "Added to your CRM",
-      description: lines[0],
-    });
-    applyQuickAdd(plan)
-      .then((res) => {
-        if (!res.ok) {
-          toast({ variant: "error", title: "Couldn't add that", description: res.error });
-        }
-      })
-      .catch(() => {
-        toast({
-          variant: "error",
-          title: "Couldn't add that",
-          description: "Something went wrong saving. Please try again.",
-        });
+    const result = res.data!;
+    if (result.applied.length > 0) {
+      toast({
+        variant: "success",
+        title:
+          result.applied.length > 1
+            ? `Added ${result.applied.length} things`
+            : "Added to your CRM",
+        description: result.applied[0],
       });
+    }
+    setPhase({ name: "done", result });
   }
 
   return (
@@ -113,7 +98,7 @@ export function QuickAdd() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (phase.name === "idle") interpret();
+              if (phase.name !== "running") submit();
             }}
             className="flex flex-col gap-2 border-b border-border p-2"
           >
@@ -122,13 +107,17 @@ export function QuickAdd() {
               <Textarea
                 ref={inputRef}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  // Editing after a result starts a fresh request.
+                  if (phase.name === "done") setPhase({ name: "idle" });
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") close();
                   // Enter submits; Shift+Enter inserts a newline.
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    if (phase.name === "idle") interpret();
+                    if (phase.name !== "running") submit();
                   }
                 }}
                 disabled={busy}
@@ -138,27 +127,25 @@ export function QuickAdd() {
               />
             </div>
             <div className="flex items-center justify-end">
-              {phase.name === "interpreting" ? (
+              {busy ? (
                 <span className="pr-1 text-muted-foreground">
                   <Spinner />
                 </span>
               ) : (
                 <Button type="submit" size="sm" disabled={!text.trim()}>
-                  Read
+                  Add
                 </Button>
               )}
             </div>
           </form>
 
-          {phase.name === "preview" ? (
-            <Preview
-              plan={phase.plan}
-              onConfirm={() => confirm(phase.plan)}
-              onCancel={reset}
-            />
+          {phase.name === "done" ? (
+            <Result result={phase.result} onClose={close} onAddMore={reset} />
           ) : (
             <p className="px-3 py-2.5 text-xs text-muted-foreground">
-              Add a contact, log a chat, or update outreach — in plain language.
+              {busy
+                ? "Filing that for you…"
+                : "Add a contact, log a chat, or update outreach — in plain language."}
             </p>
           )}
         </div>
@@ -167,23 +154,23 @@ export function QuickAdd() {
   );
 }
 
-function Preview({
-  plan,
-  onConfirm,
-  onCancel,
+function Result({
+  result,
+  onClose,
+  onAddMore,
 }: {
-  plan: ResolvedPlan;
-  onConfirm: () => void;
-  onCancel: () => void;
+  result: QuickAddResult;
+  onClose: () => void;
+  onAddMore: () => void;
 }) {
-  // A question the model raised (ambiguous request / unresolved entity) blocks
-  // applying — we ask the user to rephrase rather than guess.
-  if (plan.clarification) {
+  // Nothing written — the agent asked a question or declined (e.g. a delete).
+  // Show its message and let the user rephrase.
+  if (result.applied.length === 0) {
     return (
       <div className="flex flex-col gap-3 p-3">
-        <p className="text-sm text-foreground">{plan.clarification}</p>
+        <p className="text-sm text-foreground">{result.message}</p>
         <div className="flex justify-end">
-          <Button size="sm" variant="ghost" onClick={onCancel}>
+          <Button size="sm" variant="ghost" onClick={onAddMore}>
             Edit
           </Button>
         </div>
@@ -194,31 +181,22 @@ function Preview({
   return (
     <div className="flex flex-col gap-3 p-3">
       <ul className="flex flex-col gap-1.5">
-        {plan.summary.map((line, i) => (
+        {result.applied.map((line, i) => (
           <li key={i} className="flex items-start gap-2 text-sm text-foreground">
             <Icons.checkCircle className="mt-0.5 size-4 shrink-0 text-primary" />
             <span>{line}</span>
           </li>
         ))}
       </ul>
-
-      {plan.actionable ? (
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={onConfirm}>
-            <Icons.check className="size-4" />
-            Confirm
-          </Button>
-        </div>
-      ) : (
-        <div className="flex justify-end">
-          <Button size="sm" variant="ghost" onClick={onCancel}>
-            Close
-          </Button>
-        </div>
-      )}
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onAddMore}>
+          Add another
+        </Button>
+        <Button size="sm" onClick={onClose}>
+          <Icons.check className="size-4" />
+          Done
+        </Button>
+      </div>
     </div>
   );
 }

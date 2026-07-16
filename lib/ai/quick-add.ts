@@ -1,217 +1,64 @@
 import "server-only";
 
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  connections,
+  eventParticipants,
+  events,
+  projectOutreach,
+  type EventCategory,
+  type Interaction,
+} from "@/drizzle/schema";
 import {
   INTERACTION_TYPES,
   OUTREACH_STATUSES,
   type InteractionType,
   type OutreachStatus,
 } from "@/lib/data";
-import { listConnections, listEvents, listProjects } from "@/lib/data/crm";
-import { chatJson, type ChatMessage } from "@/lib/ai/openrouter";
-
-/** Today, resolved in the user's timezone — see `todayInZone` in ./format. */
-export type Today = { iso: string; weekday: string };
+import { formatInteractionWhen } from "@/lib/data/format";
+import { withUserRLS } from "@/lib/db/rls";
+import { chat, type ChatMessage, type ToolSchema } from "@/lib/ai/openrouter";
 
 /**
- * The "brain" behind AI Quick Add.
+ * The "brain" behind AI Quick Add — an agentic tool loop.
  *
- * A single structured-JSON model call turns one line of plain language into a
- * short list of typed operations. The model references people/events/outreach by
- * *name* (never id) — this module then resolves those names to the signed-in
- * user's real rows (creating when there's no match) and produces a
- * plain-language preview. Nothing is written here; `applyQuickAdd`
- * (lib/data/quick-add-actions.ts) executes the resolved plan after the user
- * confirms. The model can only add or edit — the vocabulary has no delete op.
+ * One line of plain language from a founder drives a short conversation with the
+ * model: it may call *read* tools to look up the user's people, events and
+ * outreach, then *write* tools to file what happened. Each tool call runs
+ * server-side against the caller's own rows (Postgres RLS, via `withUserRLS`),
+ * so a name or id the model invents can only ever touch data it's allowed to
+ * see. The model can add or edit — the toolset has no delete.
+ *
+ * The loop runs each tool as the model asks for it (reads and writes execute
+ * live) and stops when the model answers with plain prose or the round cap is
+ * reached. There is no separate confirm step; the returned `applied` lines are
+ * the record of what was written.
  */
 
-/* ------------------------------------------------------------------ */
-/*  Context handed to the model                                        */
-/* ------------------------------------------------------------------ */
+/** Today, resolved in the user's timezone — see `todayInZone` in ../data/format. */
+export type Today = { iso: string; weekday: string };
 
-type OutreachRef = {
-  id: string;
-  label: string;
-  projectId: string;
-  status: OutreachStatus;
+/** Per-run identity + clock the write tools need. */
+export type QuickAddSession = {
+  ownerId: string;
+  email: string;
+  today: Today;
 };
 
-export type QuickAddContext = {
-  connections: { id: string; name: string; company: string }[];
-  events: { id: string; name: string }[];
-  outreach: OutreachRef[];
+export type QuickAddResult = {
+  /** One human-readable line per write that actually landed. */
+  applied: string[];
+  /** The model's closing message (a summary, or a question it couldn't resolve). */
+  message: string;
 };
 
-/** Gather the compact entity lists the parser needs (≤50 connections in V1). */
-export async function buildQuickAddContext(): Promise<QuickAddContext> {
-  const [connections, projects, events] = await Promise.all([
-    listConnections(),
-    listProjects(),
-    listEvents(),
-  ]);
-
-  const outreach: OutreachRef[] = [];
-  for (const p of projects) {
-    for (const o of p.outreach) {
-      outreach.push({ id: o.id, label: o.label, projectId: p.id, status: o.status });
-    }
-  }
-
-  return {
-    connections: connections.map((c) => ({ id: c.id, name: c.name, company: c.company })),
-    events: events.map((e) => ({ id: e.id, name: e.name })),
-    outreach,
-  };
-}
+/** How many model↔tool round-trips before we stop, as a runaway backstop. */
+const MAX_ROUNDS = 6;
 
 /* ------------------------------------------------------------------ */
-/*  Model output schema (entities referenced by name)                  */
-/* ------------------------------------------------------------------ */
-
-// Enum-ish fields are parsed as free strings and normalized in resolution, so a
-// small model writing "coffee" or "follow-up sent" doesn't hard-fail validation.
-const RawOp = z.discriminatedUnion("op", [
-  z.object({
-    op: z.literal("create_connection"),
-    name: z.string().min(1).max(200),
-    role: z.string().max(200).optional(),
-    company: z.string().max(200).optional(),
-    email: z.string().max(320).optional(),
-  }),
-  z.object({
-    op: z.literal("log_interaction"),
-    person: z.string().min(1).max(200),
-    type: z.string().max(50).optional(),
-    note: z.string().max(500).optional(),
-    date: z.string().max(20).optional(),
-  }),
-  z.object({
-    op: z.literal("link_event_person"),
-    person: z.string().min(1).max(200),
-    event: z.string().min(1).max(200),
-    eventDate: z.string().max(20).optional(),
-  }),
-  z.object({
-    op: z.literal("create_event"),
-    name: z.string().min(1).max(200),
-    date: z.string().max(20).optional(),
-    location: z.string().max(200).optional(),
-  }),
-  z.object({
-    op: z.literal("set_outreach_status"),
-    recipient: z.string().min(1).max(200),
-    status: z.string().max(50),
-  }),
-  z.object({
-    op: z.literal("clarify"),
-    question: z.string().min(1).max(300),
-  }),
-]);
-
-const ModelOutput = z.object({ operations: z.array(RawOp).min(1).max(10) });
-
-/* ------------------------------------------------------------------ */
-/*  Resolved plan (entities resolved to ids; ready to apply)           */
-/* ------------------------------------------------------------------ */
-
-export type ResolvedStep =
-  | {
-      kind: "create_connection";
-      name: string;
-      role?: string;
-      company?: string;
-      email?: string;
-      summary: string;
-    }
-  | {
-      kind: "log_interaction";
-      connectionId: string | null;
-      personName: string;
-      type: InteractionType;
-      note?: string;
-      date?: string;
-      summary: string;
-    }
-  | {
-      kind: "link_event_person";
-      connectionId: string | null;
-      personName: string;
-      eventId: string | null;
-      eventName: string;
-      eventDate?: string;
-      summary: string;
-    }
-  | {
-      kind: "create_event";
-      name: string;
-      date?: string;
-      location?: string;
-      summary: string;
-    }
-  | {
-      kind: "set_outreach_status";
-      outreachId: string;
-      projectId: string;
-      recipientLabel: string;
-      status: OutreachStatus;
-      summary: string;
-    }
-  | { kind: "clarify"; question: string }
-  | { kind: "noop"; summary: string };
-
-export type ResolvedPlan = {
-  steps: ResolvedStep[];
-  /** One human-readable line per step, for the confirmation preview. */
-  summary: string[];
-  /** The first clarify question, if any — blocks applying until resolved. */
-  clarification: string | null;
-  /** True when at least one step will actually write something. */
-  actionable: boolean;
-};
-
-/* ------------------------------------------------------------------ */
-/*  Prompt                                                             */
-/* ------------------------------------------------------------------ */
-
-function contextBlock(ctx: QuickAddContext): string {
-  const people = ctx.connections.length
-    ? ctx.connections
-        .map((c) => (c.company ? `${c.name} (${c.company})` : c.name))
-        .join(", ")
-    : "(none yet)";
-  const events = ctx.events.length ? ctx.events.map((e) => e.name).join(", ") : "(none yet)";
-  const outreach = ctx.outreach.length
-    ? ctx.outreach.map((o) => o.label).join(", ")
-    : "(none yet)";
-  return `CONNECTIONS: ${people}\nEVENTS: ${events}\nOUTREACH RECIPIENTS: ${outreach}`;
-}
-
-function systemPrompt(ctx: QuickAddContext, today: Today): string {
-  return `You turn one line of plain language from a founder into structured CRM operations.
-
-Today is ${today.weekday}, ${today.iso} (in the user's timezone; dates are YYYY-MM-DD). Resolve any relative dates the user gives ("today", "yesterday", "this Saturday", "next Tuesday", "in 3 days") against this — e.g. "Saturday" means the ${today.weekday === "Saturday" ? "current" : "coming"} Saturday. Always output dates as YYYY-MM-DD.
-
-You can ONLY add or edit records — never delete. Reply with a single JSON object: {"operations": [ ... ]}. Each operation is one of:
-
-- {"op":"create_connection","name":"...","role":"?","company":"?","email":"?"} — add a new person.
-- {"op":"log_interaction","person":"...","type":"...","note":"?","date":"YYYY-MM-DD?"} — record a touchpoint with a person. "type" must be one of: ${INTERACTION_TYPES.join(", ")}. If the person is not in CONNECTIONS, they will be created automatically.
-- {"op":"create_event","name":"...","date":"YYYY-MM-DD?","location":"?"} — add an event (a conference, demo day, mixer, meetup…). Use this when the user only mentions an event, with no person to link.
-- {"op":"link_event_person","person":"...","event":"...","eventDate":"YYYY-MM-DD?"} — record that a person was met at an event. Missing person and/or event are created automatically. Use this instead of create_event whenever a person is involved.
-- {"op":"set_outreach_status","recipient":"...","status":"..."} — change an outreach recipient's status. "status" must be one of: ${OUTREACH_STATUSES.join(", ")}. Map "followed up" / "sent follow-up" to "Sent". The recipient must be in OUTREACH RECIPIENTS.
-- {"op":"clarify","question":"..."} — use this when the request is ambiguous or you cannot tell which operation applies. Do not guess.
-
-Rules:
-- Refer to people/events/recipients by name exactly as written by the user; do not invent ids.
-- Prefer a single operation. Only combine (e.g. create + log) when the sentence clearly implies both.
-- If the user asks to delete/remove anything, respond with a clarify explaining you can only add or edit.
-
-Current data for this user:
-${contextBlock(ctx)}`;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Resolution helpers                                                 */
+/*  Normalisation helpers                                              */
 /* ------------------------------------------------------------------ */
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -240,213 +87,576 @@ function resolveStatus(raw: string): OutreachStatus | null {
   return null;
 }
 
-function findConnection(ctx: QuickAddContext, name: string) {
+/** Keep a valid ISO date, else fall back to the caller's "today". */
+function isoDate(d: string | undefined, fallbackIso: string): string {
+  return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : fallbackIso;
+}
+
+/** Best-effort event category from its name (mirrors the seeder's heuristic). */
+function categoryFor(name: string): EventCategory {
+  const n = name.toLowerCase();
+  if (n.includes("demo day")) return "demo_day";
+  if (n.includes("mixer")) return "mixer";
+  if (n.includes("meetup")) return "meetup";
+  if (n.includes("info session")) return "info_session";
+  if (n.includes("office hours")) return "meeting";
+  return "other";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tools                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A tool the model can call. `run` executes it against the signed-in user's
+ * data and returns:
+ *   - `result` — JSON fed back to the model so it can decide its next move.
+ *   - `applied` — a human line recorded when the call *wrote* something.
+ *
+ * Handlers validate their own args (the model's output is untrusted) and return
+ * an `{ error }` result on bad input rather than throwing, so the model can read
+ * the message and correct itself on the next round.
+ */
+type ToolResult = { result: unknown; applied?: string };
+type ToolHandler = (args: unknown, ctx: QuickAddSession) => Promise<ToolResult>;
+type Tool = { schema: ToolSchema; run: ToolHandler };
+
+/** Small helper to declare a function tool with a JSON-Schema object of params. */
+function tool(
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: string[],
+  run: ToolHandler,
+): Tool {
+  return {
+    schema: {
+      type: "function",
+      function: {
+        name,
+        description,
+        parameters: {
+          type: "object",
+          properties,
+          required,
+          additionalProperties: false,
+        },
+      },
+    },
+    run,
+  };
+}
+
+const str = (description: string) => ({ type: "string", description });
+
+/** Bad-args result shaped so the model sees a correctable error, not a crash. */
+function argError(err: z.ZodError): ToolResult {
+  return { result: { error: err.issues[0]?.message ?? "Invalid arguments." } };
+}
+
+/** Look up a connection by (normalised) exact name within an open transaction. */
+async function findConnectionByName(
+  tx: Parameters<Parameters<typeof withUserRLS>[0]>[0],
+  name: string,
+) {
   const n = norm(name);
-  return ctx.connections.find((c) => norm(c.name) === n) ?? null;
+  const rows = await tx.select().from(connections);
+  return rows.find((r) => norm(r.name) === n) ?? null;
 }
 
-function findEvent(ctx: QuickAddContext, name: string) {
-  const n = norm(name);
-  return ctx.events.find((e) => norm(e.name) === n) ?? null;
-}
+/* ---- read tools ---- */
 
-function findOutreach(ctx: QuickAddContext, label: string) {
-  const n = norm(label);
-  // Exact first, then a contains match so "JP Morgan" finds "JP Morgan Chase".
-  return (
-    ctx.outreach.find((o) => norm(o.label) === n) ??
-    ctx.outreach.find((o) => norm(o.label).includes(n) || n.includes(norm(o.label))) ??
-    null
-  );
-}
+const SearchArgs = z.object({ query: z.string().max(200).optional() });
 
-/** Turn one validated model op into a resolved, id-bearing step. */
-function resolveOp(
-  op: z.infer<typeof RawOp>,
-  ctx: QuickAddContext,
-): ResolvedStep {
-  switch (op.op) {
-    case "clarify":
-      return { kind: "clarify", question: op.question };
+const searchConnections = tool(
+  "search_connections",
+  "Find the user's existing connections by name or company. Returns their ids. Call this before logging an interaction or linking a person so you can reference an existing connection instead of creating a duplicate. Omit `query` to list everyone.",
+  { query: str("Name or company to search for. Leave empty to list all.") },
+  [],
+  async (args) => {
+    const parsed = SearchArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const q = norm(parsed.data.query ?? "");
+    const matches = await withUserRLS(async (tx) => {
+      const rows = await tx.select().from(connections);
+      return rows
+        .filter(
+          (r) =>
+            !q ||
+            norm(r.name).includes(q) ||
+            (r.company ? norm(r.company).includes(q) : false),
+        )
+        .slice(0, 25)
+        .map((r) => ({ id: r.id, name: r.name, company: r.company, role: r.role }));
+    });
+    return { result: { matches } };
+  },
+);
 
-    case "create_connection": {
-      const existing = findConnection(ctx, op.name);
+const listEventsTool = tool(
+  "list_events",
+  "List the user's events (conferences, demo days, mixers…) with their ids and dates. Call this before linking a person to an existing event.",
+  {},
+  [],
+  async () => {
+    const rows = await withUserRLS((tx) => tx.select().from(events));
+    return {
+      result: {
+        events: rows.map((e) => ({ id: e.id, name: e.name, date: e.eventDate })),
+      },
+    };
+  },
+);
+
+const listOutreachTool = tool(
+  "list_outreach",
+  "List the user's outreach recipients with their ids and current pipeline status. Call this to find the id before changing a recipient's status.",
+  {},
+  [],
+  async () => {
+    const rows = await withUserRLS((tx) => tx.select().from(projectOutreach));
+    return {
+      result: {
+        recipients: rows.map((o) => ({
+          id: o.id,
+          label: o.label,
+          status: o.status,
+        })),
+      },
+    };
+  },
+);
+
+/* ---- write tools ---- */
+
+const CreateConnectionArgs = z.object({
+  name: z.string().min(1).max(200),
+  role: z.string().max(200).optional(),
+  company: z.string().max(200).optional(),
+  email: z.string().max(320).optional(),
+});
+
+const createConnection = tool(
+  "create_connection",
+  "Add a brand-new person to the user's connections. Search first to avoid duplicates.",
+  {
+    name: str("The person's full name."),
+    role: str("Their role/title, if mentioned."),
+    company: str("Their company, if mentioned."),
+    email: str("Their email, if mentioned."),
+  },
+  ["name"],
+  async (args, ctx) => {
+    const parsed = CreateConnectionArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const op = parsed.data;
+
+    return withUserRLS(async (tx) => {
+      const existing = await findConnectionByName(tx, op.name);
       if (existing) {
         return {
-          kind: "noop",
-          summary: `${existing.name} is already in your connections — nothing to add.`,
+          result: {
+            ok: true,
+            note: `${existing.name} already exists.`,
+            connectionId: existing.id,
+          },
         };
       }
+      const [row] = await tx
+        .insert(connections)
+        .values({
+          ownerId: ctx.ownerId,
+          name: op.name.trim(),
+          role: op.role?.trim() || null,
+          company: op.company?.trim() || null,
+          email: op.email?.trim() || null,
+        })
+        .returning({ id: connections.id });
       const extras = [op.role, op.company].filter(Boolean).join(", ");
       return {
-        kind: "create_connection",
-        name: op.name,
-        role: op.role,
-        company: op.company,
-        email: op.email,
-        summary: `Add new connection ${op.name}${extras ? ` (${extras})` : ""}.`,
+        result: { ok: true, connectionId: row.id },
+        applied: `Add new connection ${op.name}${extras ? ` (${extras})` : ""}.`,
       };
-    }
+    });
+  },
+);
 
-    case "log_interaction": {
-      const match = findConnection(ctx, op.person);
-      const type = resolveInteractionType(op.type);
-      const created = match ? "" : " (new connection)";
+const LogInteractionArgs = z.object({
+  connectionId: z.uuid().optional(),
+  personName: z.string().min(1).max(200),
+  type: z.string().max(50).optional(),
+  note: z.string().max(500).optional(),
+  date: z.string().max(20).optional(),
+});
+
+const logInteraction = tool(
+  "log_interaction",
+  `Record a touchpoint (Coffee, Call, Email, Meeting, Message, Intro, LinkedIn, Other) with a person. Pass the connectionId from search_connections when the person exists; otherwise they'll be created from personName. Dates are YYYY-MM-DD.`,
+  {
+    connectionId: str("Existing connection id from search_connections, if known."),
+    personName: str("The person's name (used to create them if no id is given)."),
+    type: str(`One of: ${INTERACTION_TYPES.join(", ")}.`),
+    note: str("A short note about the touchpoint."),
+    date: str("When it happened, as YYYY-MM-DD."),
+  },
+  ["personName"],
+  async (args, ctx) => {
+    const parsed = LogInteractionArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const op = parsed.data;
+    const type = resolveInteractionType(op.type);
+    const date = isoDate(op.date, ctx.today.iso);
+
+    return withUserRLS(async (tx) => {
+      let connectionId = op.connectionId ?? null;
+      let created = false;
+      if (connectionId) {
+        // Confirm the id is really the caller's (RLS-scoped read); ignore if not.
+        const [own] = await tx
+          .select({ id: connections.id })
+          .from(connections)
+          .where(eq(connections.id, connectionId));
+        if (!own) connectionId = null;
+      }
+      if (!connectionId) {
+        const match = await findConnectionByName(tx, op.personName);
+        if (match) {
+          connectionId = match.id;
+        } else {
+          const [row] = await tx
+            .insert(connections)
+            .values({ ownerId: ctx.ownerId, name: op.personName.trim() })
+            .returning({ id: connections.id });
+          connectionId = row.id;
+          created = true;
+        }
+      }
+
+      const entry: Interaction = {
+        label: op.note?.trim() ?? "",
+        when: formatInteractionWhen(date) ?? "Just now",
+        type,
+        date,
+      };
+      const [existing] = await tx
+        .select({ interactions: connections.interactions })
+        .from(connections)
+        .where(eq(connections.id, connectionId));
+      await tx
+        .update(connections)
+        .set({ interactions: [entry, ...(existing?.interactions ?? [])] })
+        .where(eq(connections.id, connectionId));
+
+      const newBit = created ? " (new connection)" : "";
       const noteBit = op.note ? ` — "${op.note}"` : "";
       return {
-        kind: "log_interaction",
-        connectionId: match?.id ?? null,
-        personName: match?.name ?? op.person,
-        type,
-        note: op.note,
-        date: op.date,
-        summary: `Log a ${type} with ${match?.name ?? op.person}${created}${noteBit}.`,
+        result: { ok: true, connectionId },
+        applied: `Log a ${type} with ${op.personName}${newBit}${noteBit}.`,
       };
-    }
+    });
+  },
+);
 
-    case "link_event_person": {
-      const person = findConnection(ctx, op.person);
-      const event = findEvent(ctx, op.event);
-      const pNew = person ? "" : " (new connection)";
-      const eNew = event ? "" : " (new event)";
+const LinkEventPersonArgs = z.object({
+  connectionId: z.uuid().optional(),
+  personName: z.string().min(1).max(200),
+  eventId: z.uuid().optional(),
+  eventName: z.string().min(1).max(200),
+  eventDate: z.string().max(20).optional(),
+});
+
+const linkEventPerson = tool(
+  "link_event_person",
+  "Record that a person was met at an event. Pass ids from search_connections / list_events when they exist; a missing person and/or event are created automatically. Dates are YYYY-MM-DD.",
+  {
+    connectionId: str("Existing connection id, if known."),
+    personName: str("The person's name (used to create them if no id is given)."),
+    eventId: str("Existing event id from list_events, if known."),
+    eventName: str("The event's name (used to create it if no id is given)."),
+    eventDate: str("The event's date as YYYY-MM-DD, if creating it."),
+  },
+  ["personName", "eventName"],
+  async (args, ctx) => {
+    const parsed = LinkEventPersonArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const op = parsed.data;
+
+    return withUserRLS(async (tx) => {
+      // Resolve / create the person.
+      let connectionId = op.connectionId ?? null;
+      let personNew = false;
+      if (connectionId) {
+        const [own] = await tx
+          .select({ id: connections.id })
+          .from(connections)
+          .where(eq(connections.id, connectionId));
+        if (!own) connectionId = null;
+      }
+      if (!connectionId) {
+        const match = await findConnectionByName(tx, op.personName);
+        if (match) {
+          connectionId = match.id;
+        } else {
+          const [row] = await tx
+            .insert(connections)
+            .values({ ownerId: ctx.ownerId, name: op.personName.trim() })
+            .returning({ id: connections.id });
+          connectionId = row.id;
+          personNew = true;
+        }
+      }
+
+      // Resolve / create the event.
+      let eventId = op.eventId ?? null;
+      let eventNew = false;
+      if (eventId) {
+        const [own] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(eq(events.id, eventId));
+        if (!own) eventId = null;
+      }
+      if (!eventId) {
+        const [row] = await tx
+          .insert(events)
+          .values({
+            ownerId: ctx.ownerId,
+            name: op.eventName.trim(),
+            category: categoryFor(op.eventName),
+            eventDate: isoDate(op.eventDate, ctx.today.iso),
+          })
+          .returning({ id: events.id });
+        eventId = row.id;
+        eventNew = true;
+      }
+
+      await tx
+        .insert(eventParticipants)
+        .values({ ownerId: ctx.ownerId, eventId, connectionId })
+        .onConflictDoNothing();
+
+      const pNew = personNew ? " (new connection)" : "";
+      const eNew = eventNew ? " (new event)" : "";
       return {
-        kind: "link_event_person",
-        connectionId: person?.id ?? null,
-        personName: person?.name ?? op.person,
-        eventId: event?.id ?? null,
-        eventName: event?.name ?? op.event,
-        eventDate: op.eventDate,
-        summary: `Link ${person?.name ?? op.person}${pNew} to event ${event?.name ?? op.event}${eNew}.`,
+        result: { ok: true, connectionId, eventId },
+        applied: `Link ${op.personName}${pNew} to event ${op.eventName}${eNew}.`,
       };
-    }
+    });
+  },
+);
 
-    case "create_event": {
-      const existing = findEvent(ctx, op.name);
+const CreateEventArgs = z.object({
+  name: z.string().min(1).max(200),
+  date: z.string().max(20).optional(),
+  location: z.string().max(200).optional(),
+});
+
+const createEvent = tool(
+  "create_event",
+  "Add an event (a conference, demo day, mixer, meetup…) with no person to link. Use link_event_person instead whenever a person is involved. Dates are YYYY-MM-DD.",
+  {
+    name: str("The event's name."),
+    date: str("The event's date as YYYY-MM-DD."),
+    location: str("Where it takes place, if mentioned."),
+  },
+  ["name"],
+  async (args, ctx) => {
+    const parsed = CreateEventArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const op = parsed.data;
+
+    return withUserRLS(async (tx) => {
+      const rows = await tx.select().from(events);
+      const existing = rows.find((e) => norm(e.name) === norm(op.name));
       if (existing) {
         return {
-          kind: "noop",
-          summary: `${existing.name} is already one of your events — nothing to add.`,
+          result: { ok: true, note: `${existing.name} already exists.`, eventId: existing.id },
         };
       }
+      const [row] = await tx
+        .insert(events)
+        .values({
+          ownerId: ctx.ownerId,
+          name: op.name.trim(),
+          category: categoryFor(op.name),
+          eventDate: isoDate(op.date, ctx.today.iso),
+          location: op.location?.trim() || null,
+        })
+        .returning({ id: events.id });
       const where = op.location ? ` at ${op.location}` : "";
       const on = op.date ? ` on ${op.date}` : "";
       return {
-        kind: "create_event",
-        name: op.name,
-        date: op.date,
-        location: op.location,
-        summary: `Add event ${op.name}${on}${where}.`,
+        result: { ok: true, eventId: row.id },
+        applied: `Add event ${op.name}${on}${where}.`,
+      };
+    });
+  },
+);
+
+const SetOutreachStatusArgs = z.object({
+  outreachId: z.uuid(),
+  status: z.string().min(1).max(50),
+});
+
+const setOutreachStatus = tool(
+  "set_outreach_status",
+  `Change an outreach recipient's pipeline status. Get the outreachId from list_outreach first. status must map to one of: ${OUTREACH_STATUSES.join(", ")} ("followed up" → Sent).`,
+  {
+    outreachId: str("The recipient id from list_outreach."),
+    status: str(`One of: ${OUTREACH_STATUSES.join(", ")}.`),
+  },
+  ["outreachId", "status"],
+  async (args) => {
+    const parsed = SetOutreachStatusArgs.safeParse(args);
+    if (!parsed.success) return argError(parsed.error);
+    const op = parsed.data;
+    const status = resolveStatus(op.status);
+    if (!status) {
+      return {
+        result: {
+          error: `Couldn't map "${op.status}" to a status. Options: ${OUTREACH_STATUSES.join(", ")}.`,
+        },
       };
     }
 
-    case "set_outreach_status": {
-      const match = findOutreach(ctx, op.recipient);
-      const status = resolveStatus(op.status);
-      if (!match) {
+    return withUserRLS(async (tx) => {
+      const [row] = await tx
+        .update(projectOutreach)
+        .set({ status })
+        .where(eq(projectOutreach.id, op.outreachId))
+        .returning({ label: projectOutreach.label });
+      if (!row) {
         return {
-          kind: "clarify",
-          question: `I couldn't find an outreach recipient matching "${op.recipient}". Which one did you mean?`,
-        };
-      }
-      if (!status) {
-        return {
-          kind: "clarify",
-          question: `I couldn't map "${op.status}" to a status. Options: ${OUTREACH_STATUSES.join(", ")}.`,
+          result: { error: "No outreach recipient with that id — call list_outreach." },
         };
       }
       return {
-        kind: "set_outreach_status",
-        outreachId: match.id,
-        projectId: match.projectId,
-        recipientLabel: match.label,
-        status,
-        summary: `Set outreach ${match.label} → ${status}.`,
+        result: { ok: true },
+        applied: `Set outreach ${row.label} → ${status}.`,
       };
-    }
-  }
+    });
+  },
+);
+
+/** Every tool, keyed by name for dispatch. */
+const TOOLS: Record<string, Tool> = Object.fromEntries(
+  [
+    searchConnections,
+    listEventsTool,
+    listOutreachTool,
+    createConnection,
+    logInteraction,
+    linkEventPerson,
+    createEvent,
+    setOutreachStatus,
+  ].map((t) => [t.schema.function.name, t]),
+);
+
+const TOOL_SCHEMAS = Object.values(TOOLS).map((t) => t.schema);
+
+/* ------------------------------------------------------------------ */
+/*  Prompt                                                             */
+/* ------------------------------------------------------------------ */
+
+function systemPrompt(today: Today): string {
+  return `You are the assistant behind a founder CRM's Quick Add box. The user types one line of plain language about something that happened; you file it by calling tools.
+
+Today is ${today.weekday}, ${today.iso} (in the user's timezone). Resolve relative dates ("today", "yesterday", "this Saturday", "in 3 days") against this and always pass dates as YYYY-MM-DD.
+
+How to work:
+- Use the read tools (search_connections, list_events, list_outreach) to find existing records and their ids BEFORE writing, so you don't create duplicates.
+- Then call the write tools to record what happened. You may make several tool calls; when a sentence implies two things (e.g. "met Priya at Demo Day and she wants a call"), do both.
+- You can ONLY add or edit. If the user asks to delete or remove something, don't call a tool — reply explaining you can only add or edit.
+- When the request is genuinely ambiguous, don't guess — reply with a short clarifying question instead of calling a tool.
+- When you're done, reply with ONE short sentence summarising what you filed (or your question). Keep it plain and friendly.`;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Entry point                                                        */
+/*  Agentic loop                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Parse the model's JSON reply, tolerating a stray ```json fence or prose. */
-function parseModelJson(raw: string): unknown {
-  const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
+/** Dispatch one tool call, turning any thrown error into a model-readable result. */
+async function executeTool(
+  name: string,
+  rawArgs: string,
+  ctx: QuickAddSession,
+): Promise<ToolResult> {
+  const t = TOOLS[name];
+  if (!t) return { result: { error: `Unknown tool "${name}".` } };
+  let args: unknown;
   try {
-    return JSON.parse(trimmed);
+    args = rawArgs ? JSON.parse(rawArgs) : {};
   } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start !== -1 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
-    throw new Error("Model did not return JSON.");
+    return { result: { error: "Arguments were not valid JSON." } };
+  }
+  try {
+    return await t.run(args, ctx);
+  } catch (e) {
+    console.error(`Quick Add tool "${name}" failed`, e);
+    return { result: { error: "That tool call failed — try a different approach." } };
   }
 }
 
 /**
- * Interpret one Quick Add line into a resolved, previewable plan. Makes a single
- * model call with one retry on a malformed reply; if it still can't produce a
- * valid plan, returns a `clarify` step rather than throwing.
+ * Run one Quick Add line to completion: let the model read and write via tools
+ * until it answers with prose (or we hit the round cap). Returns the lines that
+ * were actually written plus the model's closing message.
  */
-export async function interpretQuickAdd(
+export async function runQuickAdd(
   text: string,
-  ctx: QuickAddContext,
-  today: Today,
-): Promise<ResolvedPlan> {
+  session: QuickAddSession,
+): Promise<QuickAddResult> {
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(ctx, today) },
+    { role: "system", content: systemPrompt(session.today) },
     { role: "user", content: text },
   ];
+  const applied: string[] = [];
 
-  let parsed: z.infer<typeof ModelOutput> | null = null;
-  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
-    const reply = await chatJson(messages);
-    const candidate = ModelOutput.safeParse(parseModelJsonSafe(reply));
-    if (candidate.success) {
-      parsed = candidate.data;
-    } else if (attempt === 0) {
-      messages.push(
-        { role: "assistant" as const, content: reply },
-        {
-          role: "user" as const,
-          content:
-            'That was not valid. Reply with ONLY a JSON object of the form {"operations":[...]} using the allowed ops.',
-        },
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const reply = await chat(messages, { tools: TOOL_SCHEMAS });
+    const calls = reply.tool_calls ?? [];
+
+    if (calls.length === 0) {
+      return {
+        applied,
+        message: reply.content?.trim() || defaultMessage(applied),
+      };
+    }
+
+    // Echo the assistant turn (with its tool calls) before answering each one.
+    messages.push({
+      role: "assistant",
+      content: reply.content ?? null,
+      tool_calls: calls,
+    });
+
+    for (const call of calls) {
+      const { result, applied: line } = await executeTool(
+        call.function.name,
+        call.function.arguments,
+        session,
       );
+      if (line) applied.push(line);
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify(result),
+      });
     }
   }
 
-  if (!parsed) {
-    return {
-      steps: [{ kind: "clarify", question: "I didn't quite catch that — can you rephrase?" }],
-      summary: [],
-      clarification: "I didn't quite catch that — can you rephrase?",
-      actionable: false,
-    };
-  }
-
-  const steps = parsed.operations.map((op) => resolveOp(op, ctx));
-  const clarifyStep = steps.find((s) => s.kind === "clarify");
-  const actionable = steps.some(
-    (s) => s.kind !== "clarify" && s.kind !== "noop",
-  );
-  const summary = steps
-    .filter((s): s is Exclude<ResolvedStep, { kind: "clarify" }> => s.kind !== "clarify")
-    .map((s) => s.summary);
-
+  // Ran out of rounds — report whatever landed rather than looping forever.
   return {
-    steps,
-    summary,
-    clarification: clarifyStep?.kind === "clarify" ? clarifyStep.question : null,
-    actionable,
+    applied,
+    message: applied.length
+      ? defaultMessage(applied)
+      : "I couldn't finish that — try rephrasing it as a single, clearer note.",
   };
 }
 
-/** parseModelJson that returns `null` instead of throwing, for the retry loop. */
-function parseModelJsonSafe(raw: string): unknown {
-  try {
-    return parseModelJson(raw);
-  } catch {
-    return null;
-  }
+/** A fallback closing line when the model didn't supply its own. */
+function defaultMessage(applied: string[]): string {
+  if (applied.length === 0) return "Nothing to add.";
+  if (applied.length === 1) return "Added to your CRM.";
+  return `Filed ${applied.length} things.`;
 }
