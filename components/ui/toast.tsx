@@ -24,6 +24,11 @@ type ToastOptions = {
   variant?: ToastVariant
   /** Auto-dismiss delay in ms. Errors linger longer so they're not missed. */
   duration?: number
+  /**
+   * Optional follow-up the toast offers, e.g. reopening Quick Add on a request
+   * the agent came back with a question about. Clicking it dismisses the toast.
+   */
+  action?: { label: string; onClick: () => void }
 }
 
 type ToastRecord = ToastOptions & { id: string; variant: ToastVariant }
@@ -46,6 +51,9 @@ const ToastContext = React.createContext<ToastApi>(noop)
 
 const DEFAULT_DURATION = 5000
 const ERROR_DURATION = 8000
+// A toast worth acting on has to outlive a glance — you have to read it, decide,
+// and reach for the mouse before it slides away.
+const ACTION_DURATION = 12000
 
 const chip: Record<ToastVariant, string> = {
   error: "tone-red",
@@ -92,7 +100,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key={t.id}
               duration={
                 t.duration ??
-                (t.variant === "error" ? ERROR_DURATION : DEFAULT_DURATION)
+                (t.action
+                  ? ACTION_DURATION
+                  : t.variant === "error"
+                    ? ERROR_DURATION
+                    : DEFAULT_DURATION)
               }
               onOpenChange={(open) => {
                 if (!open) remove(t.id)
@@ -121,6 +133,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   <ToastPrimitive.Description className="mt-0.5 text-xs text-muted-foreground">
                     {t.description}
                   </ToastPrimitive.Description>
+                ) : null}
+                {t.action ? (
+                  <ToastPrimitive.Action asChild altText={t.action.label}>
+                    <button
+                      type="button"
+                      onClick={t.action.onClick}
+                      className="mt-2 rounded-sm text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t.action.label}
+                    </button>
+                  </ToastPrimitive.Action>
                 ) : null}
               </div>
               <ToastPrimitive.Close

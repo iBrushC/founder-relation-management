@@ -17,7 +17,7 @@ import "server-only";
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 /** The model the Quick Add agent runs on. */
-export const QUICK_ADD_MODEL = "ibm-granite/granite-4.1-8b";
+export const QUICK_ADD_MODEL = "mistralai/mistral-small-2603";
 
 /** A tool the model chose to call, with its raw (unparsed) JSON arguments. */
 export type ToolCall = {
