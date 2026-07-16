@@ -1,13 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, matchAllTerms } from "@/lib/utils";
 import { Icons, type IconKey } from "@/lib/icons";
 import type { ExtraField, Tag as TagType, Tone } from "@/lib/data";
 import { toneBg } from "@/lib/tone";
+import { InitialsAvatar, PersonRow } from "@/components/app/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 /**
  * Small building blocks shared by the inline-edit surfaces (connection/event
@@ -259,71 +273,292 @@ export function TagEditor({
   );
 }
 
-/** Edit a plain string list (event organizers, guests): chips + add-on-Enter. */
-export function ChipInput({
+/**
+ * The person fields the two pickers below read. `Connection` satisfies it
+ * structurally, so callers can pass their connections straight through.
+ */
+export type PickerPerson = {
+  id: string;
+  name: string;
+  role?: string;
+  company?: string;
+  avatarTone: Tone;
+};
+
+/** "Role · Company" — the secondary line under a person's name. */
+function subtitleOf(p: PickerPerson): string {
+  return [p.role, p.company].filter(Boolean).join(" · ");
+}
+
+/** The trigger shared by the pickers: an input-shaped button with a chevron. */
+function PickerTrigger({
+  open,
+  className,
+  children,
+}: {
+  open: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <PopoverTrigger
+      role="combobox"
+      aria-expanded={open}
+      className={cn(
+        "flex h-8 w-full cursor-pointer items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50",
+        className,
+      )}
+    >
+      {children}
+      <Icons.chevronDown className="size-4 shrink-0 text-muted-foreground" />
+    </PopoverTrigger>
+  );
+}
+
+/**
+ * Pick a single connection by typing — a search-as-you-type combobox over the
+ * caller's people. `null` means "no one", and the list offers a Clear row to get
+ * back there once someone is chosen.
+ */
+export function ConnectionCombobox({
+  people,
   value,
   onChange,
-  placeholder,
+  placeholder = "Search connections…",
+  emptyLabel = "No one",
 }: {
-  value: string[];
-  onChange: (items: string[]) => void;
+  people: PickerPerson[];
+  value: string | null;
+  onChange: (id: string | null) => void;
   placeholder?: string;
+  /** Shown on the trigger when nothing is selected. */
+  emptyLabel?: string;
 }) {
-  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = people.find((p) => p.id === value);
 
-  const add = () => {
-    const item = draft.trim();
-    if (!item || value.some((v) => v.toLowerCase() === item.toLowerCase())) return;
-    onChange([...value, item]);
-    setDraft("");
+  const pick = (id: string | null) => {
+    onChange(id);
+    setOpen(false);
   };
 
   return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PickerTrigger open={open}>
+        {selected ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <InitialsAvatar
+              name={selected.name}
+              tone={selected.avatarTone}
+              className="size-5 text-[9px]"
+            />
+            <span className="truncate">{selected.name}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{emptyLabel}</span>
+        )}
+      </PickerTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-0">
+        <Command filter={matchAllTerms} loop>
+          <CommandInput placeholder={placeholder} />
+          <CommandList>
+            <CommandEmpty>No connections match.</CommandEmpty>
+            <CommandGroup>
+              {value ? (
+                <CommandItem
+                  value="clear"
+                  keywords={["none", "clear"]}
+                  onSelect={() => pick(null)}
+                >
+                  <Icons.x className="size-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Clear</span>
+                </CommandItem>
+              ) : null}
+              {people.map((p) => (
+                <CommandItem
+                  key={p.id}
+                  value={p.id}
+                  keywords={[p.name, subtitleOf(p)]}
+                  onSelect={() => pick(p.id)}
+                >
+                  <InitialsAvatar
+                    name={p.name}
+                    tone={p.avatarTone}
+                    className="size-6 text-[10px]"
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span className="truncate">{p.name}</span>
+                    {subtitleOf(p) ? (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {subtitleOf(p)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {p.id === value ? (
+                    <Icons.check className="size-4 text-primary" />
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Edit the people met at an event as one list, whether or not they're in
+ * Connections. Searching offers matching connections; anything else can be added
+ * by name as a plain guest, which keeps "met them at a mixer" a two-second entry
+ * and leaves promoting them to a connection for later.
+ */
+export function GuestPicker({
+  people,
+  metIds,
+  guests,
+  onChange,
+}: {
+  /** Every connection available to pick. */
+  people: PickerPerson[];
+  /** Ids of the picked connections. */
+  metIds: string[];
+  /** Picked guests who aren't connections — plain names. */
+  guests: string[];
+  onChange: (next: { metIds: string[]; guests: string[] }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const picked = metIds
+    .map((id) => people.find((p) => p.id === id))
+    .filter((p): p is PickerPerson => Boolean(p));
+  const unpicked = people.filter((p) => !metIds.includes(p.id));
+
+  const draft = query.trim();
+  // A name already on the list — as a connection or a guest — can't be added twice.
+  const alreadyListed = [...picked.map((p) => p.name), ...guests].some(
+    (n) => n.toLowerCase() === draft.toLowerCase(),
+  );
+
+  const addConnection = (id: string) => {
+    onChange({ metIds: [...metIds, id], guests });
+    setQuery("");
+    setOpen(false);
+  };
+
+  const addGuest = () => {
+    if (!draft || alreadyListed) return;
+    onChange({ metIds, guests: [...guests, draft] });
+    setQuery("");
+    setOpen(false);
+  };
+
+  const removeButton = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      aria-label={`Remove ${label}`}
+      onClick={onClick}
+      className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-black/10"
+    >
+      <Icons.x className="size-3.5" />
+    </button>
+  );
+
+  return (
     <div className="flex flex-col gap-2">
-      {value.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {value.map((v, i) => (
-            <span
-              key={`${v}-${i}`}
-              className="inline-flex h-6 items-center gap-1 rounded-[5px] border border-border bg-muted pr-1 pl-2 text-xs font-medium"
-            >
-              {v}
-              <button
-                type="button"
-                aria-label={`Remove ${v}`}
-                onClick={() => onChange(value.filter((_, j) => j !== i))}
-                className="grid size-4 place-items-center rounded-sm hover:bg-black/10"
-              >
-                <Icons.x className="size-3" />
-              </button>
-            </span>
+      {picked.length > 0 || guests.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {picked.map((p) => (
+            <PersonRow
+              key={p.id}
+              name={p.name}
+              subtitle={subtitleOf(p)}
+              tone={p.avatarTone}
+              action={removeButton(p.name, () =>
+                onChange({ metIds: metIds.filter((id) => id !== p.id), guests }),
+              )}
+            />
+          ))}
+          {guests.map((name) => (
+            <PersonRow
+              key={name}
+              name={name}
+              subtitle="Not a connection"
+              tone="slate"
+              action={removeButton(name, () =>
+                onChange({ metIds, guests: guests.filter((g) => g !== name) }),
+              )}
+            />
           ))}
         </div>
       ) : null}
-      <div className="flex items-center gap-1.5">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add();
-            }
-          }}
-          placeholder={placeholder}
-          className="h-8"
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon-sm"
-          onClick={add}
-          disabled={!draft.trim()}
-          aria-label="Add"
-        >
-          <Icons.plus className="size-4" />
-        </Button>
-      </div>
+
+      <Popover open={open} onOpenChange={setOpen}>
+        <PickerTrigger open={open}>
+          <span className="text-muted-foreground">Add someone…</span>
+        </PickerTrigger>
+        <PopoverContent className="w-(--radix-popover-trigger-width) p-0">
+          <Command filter={matchAllTerms} loop>
+            <CommandInput
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search or type a name…"
+            />
+            <CommandList>
+              {/* Only reachable when the draft can't be added as a guest either —
+                  otherwise the add row below always matches. */}
+              <CommandEmpty>
+                {alreadyListed
+                  ? "Already on the list."
+                  : "Type a name to add someone."}
+              </CommandEmpty>
+              {unpicked.length > 0 ? (
+                <CommandGroup heading="Connections">
+                  {unpicked.map((p) => (
+                    <CommandItem
+                      key={p.id}
+                      value={p.id}
+                      keywords={[p.name, subtitleOf(p)]}
+                      onSelect={() => addConnection(p.id)}
+                    >
+                      <InitialsAvatar
+                        name={p.name}
+                        tone={p.avatarTone}
+                        className="size-6 text-[10px]"
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                        <span className="truncate">{p.name}</span>
+                        {subtitleOf(p) ? (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {subtitleOf(p)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {/* Kept alongside any connection matches, not just when there are
+                  none — the person you mean may be a namesake of one. */}
+              {draft && !alreadyListed ? (
+                <CommandGroup>
+                  <CommandItem
+                    value="add-guest"
+                    keywords={[draft]}
+                    onSelect={addGuest}
+                  >
+                    <Icons.plus className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">
+                      Add “<span className="font-medium">{draft}</span>” as a guest
+                    </span>
+                  </CommandItem>
+                </CommandGroup>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

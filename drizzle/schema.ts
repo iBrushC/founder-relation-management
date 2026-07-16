@@ -388,9 +388,11 @@ export const events = pgTable(
     /** Optional start time; null for all-day events. */
     startTime: time("start_time"),
     location: text(),
-    /** Who ran it — orgs or people, free text (not necessarily connections). */
-    organizers: jsonb().$type<string[]>().notNull().default([]),
-    /** People met who aren't (yet) connections. */
+    /**
+     * Guests met who aren't (yet) connections — plain names. The connection-backed
+     * guests live in `event_participants`; the UI shows the two as one list and can
+     * promote a name here into a real connection later.
+     */
     metGuests: jsonb("met_guests").$type<string[]>().notNull().default([]),
     /** Optional project this event relates to (e.g. a "Weekly sync — Lumen"). */
     projectId: uuid("project_id").references(() => projects.id, {

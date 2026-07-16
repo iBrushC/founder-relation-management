@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import {
   connections,
@@ -43,6 +43,7 @@ import {
   CreateProjectInput,
   CreateStageInput,
   CreateTaskInput,
+  EventParticipantsInput,
   ImportConnectionsInput,
   InteractionsInput,
   SubtasksInput,
@@ -241,7 +242,6 @@ export async function seedSampleData(): Promise<ActionResult> {
             category: categoryFor(e.name),
             eventDate: whenToIso(e.when),
             location: e.where || null,
-            organizers: e.organizers,
             metGuests: e.metGuests ?? [],
             note: e.note || null,
             avatarTone: e.avatarTone,
@@ -470,6 +470,115 @@ export async function linkEventConnection(
   });
 }
 
+/**
+ * Replace an event's connection-backed guests with exactly `connectionIds`. The
+ * panel edits the guest list as a whole, so this reconciles rather than appends:
+ * anyone dropped from the list is unlinked, anyone new is inserted.
+ *
+ * Ids are filtered against the connections RLS can see, so a request naming
+ * someone else's connection can't leave a cross-owner row behind.
+ */
+export async function setEventParticipants(
+  eventId: string,
+  connectionIds: string[],
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(eventId).success) return fail(BAD_ID);
+  const parsed = EventParticipantsInput.safeParse(connectionIds);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  const user = await verifySession();
+  const wanted = [...new Set(parsed.data)];
+
+  return run(async () => {
+    await withUserRLS(async (tx) => {
+      const owned =
+        wanted.length > 0
+          ? await tx
+              .select({ id: connections.id })
+              .from(connections)
+              .where(inArray(connections.id, wanted))
+          : [];
+      const ids = owned.map((c) => c.id);
+
+      await tx
+        .delete(eventParticipants)
+        .where(
+          and(
+            eq(eventParticipants.eventId, eventId),
+            ids.length > 0
+              ? notInArray(eventParticipants.connectionId, ids)
+              : undefined,
+          ),
+        );
+      if (ids.length > 0) {
+        await tx
+          .insert(eventParticipants)
+          .values(
+            ids.map((connectionId) => ({
+              ownerId: user.userId,
+              eventId,
+              connectionId,
+            })),
+          )
+          .onConflictDoNothing();
+      }
+    });
+    revalidatePath("/events");
+    revalidatePath("/");
+  });
+}
+
+/**
+ * Promote a plain-name guest into a real connection — the "met them first, added
+ * them later" path. Creates the connection, links it to the event as a guest, and
+ * drops the name from `met_guests` in one transaction so the person is never
+ * listed twice. Returns the new connection so the panel can render it without
+ * waiting for a refetch.
+ *
+ * The `event_participants` FK doubles as the existence check: an event the caller
+ * can't see fails the insert and rolls the whole thing back, connection included.
+ */
+export async function promoteEventGuest(
+  eventId: string,
+  guestName: string,
+): Promise<ActionResult<Connection>> {
+  if (!zUuid.safeParse(eventId).success) return fail(BAD_ID);
+  const parsed = CreateConnectionInput.safeParse({ name: guestName });
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  const user = await verifySession();
+  const { name } = parsed.data;
+
+  return run(async () => {
+    const created = await withUserRLS(async (tx) => {
+      await ensureProfile(tx, user);
+      const [row] = await tx
+        .insert(connections)
+        .values({ ownerId: user.userId, name })
+        .returning();
+      await tx
+        .insert(eventParticipants)
+        .values({ ownerId: user.userId, eventId, connectionId: row.id })
+        .onConflictDoNothing();
+      // Filter the name out of the jsonb array in place — no read-modify-write.
+      await tx
+        .update(events)
+        .set({
+          metGuests: sql`coalesce((
+            select jsonb_agg(value)
+            from jsonb_array_elements_text(${events.metGuests})
+            where lower(value) <> lower(${name})
+          ), '[]'::jsonb)`,
+        })
+        .where(eq(events.id, eventId));
+      return toConnection(row, 0);
+    });
+
+    revalidatePath("/events");
+    revalidatePath("/connections");
+    revalidatePath("/");
+    return created;
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /*  Edits — in-place updates to existing rows                          */
 /* ------------------------------------------------------------------ */
@@ -632,7 +741,6 @@ export async function updateEvent(
     name: string;
     eventDate: string;
     location?: string;
-    organizers?: string[];
     metGuests?: string[];
     note?: string;
     link?: string;
@@ -656,7 +764,6 @@ export async function updateEvent(
           location: orNull(patch.location),
           note: orNull(patch.note),
           link: orNull(patch.link),
-          ...(patch.organizers ? { organizers: patch.organizers } : {}),
           ...(patch.metGuests ? { metGuests: patch.metGuests } : {}),
           ...(patch.hostedByMe !== undefined
             ? { hostedByMe: patch.hostedByMe }

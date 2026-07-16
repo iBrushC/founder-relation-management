@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { matchAllTerms } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import type { IconKey } from "@/lib/icons";
 import { useSearch } from "@/lib/data/hooks";
@@ -22,21 +23,10 @@ const GROUPS: { type: SearchItem["type"]; heading: string; icon: IconKey }[] = [
 ];
 
 /**
- * Match all whitespace-separated terms against the item's text (title, subtitle,
- * and hidden keywords), so "sam alder" finds "Sam Whitfield · Alder Ventures".
- * Runs entirely on the client over the prefetched index — instant as you type.
- */
-function matches(_value: string, search: string, keywords?: string[]): number {
-  const haystack = (keywords ?? []).join(" ").toLowerCase();
-  const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return 1;
-  return terms.every((t) => haystack.includes(t)) ? 1 : 0;
-}
-
-/**
  * App-wide search. An inline combobox (shadcn `Command`) over the user's people,
  * projects, and events — selecting a result deep-links to it. The index is
- * fetched lazily the first time the field is used, then cached by SWR.
+ * fetched lazily the first time the field is used, then cached by SWR, so
+ * matching runs entirely on the client — instant as you type.
  */
 export function GlobalSearch() {
   const router = useRouter();
@@ -95,7 +85,7 @@ export function GlobalSearch() {
   return (
     <Command
       ref={rootRef}
-      filter={matches}
+      filter={matchAllTerms}
       shouldFilter
       loop
       className="relative overflow-visible justify-center"

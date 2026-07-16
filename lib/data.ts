@@ -85,11 +85,9 @@ export type EventItem = {
   /** Raw ISO event date (YYYY-MM-DD); backs the edit form's date input. */
   date?: string;
   where: string;
-  /** Who ran the event (orgs or people). */
-  organizers: string[];
-  /** Connection IDs of people met at the event. */
+  /** Guests met at the event who are connections. */
   metIds: string[];
-  /** People met who aren't in Connections (yet). */
+  /** Guests met at the event who aren't connections (yet) — plain names. */
   metGuests?: string[];
   note: string;
   /** URL of the event's page (Luma, Eventbrite, meetup listing…). */
@@ -362,7 +360,6 @@ export const events: EventItem[] = [
     name: "Alder Ventures Office Hours",
     when: "in 5 days",
     where: "Alder Ventures, Menlo Park",
-    organizers: ["Alder Ventures"],
     metIds: ["sam-whitfield"],
     note: "Booked slot to walk Sam through the deck live. Bring the updated traction numbers and the fall pilot timeline.",
     upcoming: true,
@@ -374,7 +371,6 @@ export const events: EventItem[] = [
     name: "Pre-seed Demo Day",
     when: "Jul 12",
     where: "Mission Bay Conference Center, SF",
-    organizers: ["Founders Fellowship", "Alder Ventures"],
     metIds: ["sam-whitfield", "elena-mora"],
     metGuests: ["Jordan Ellis (Beacon Capital)"],
     note: "5-minute pitch slot. Investor mingling after — Elena is introducing us to two seed funds. Have the one-liner and the QR to the deck ready.",
@@ -387,7 +383,6 @@ export const events: EventItem[] = [
     name: "Design Systems Meetup",
     when: "Jul 18",
     where: "Northwind HQ, San Francisco",
-    organizers: ["Priya Raman", "Northwind"],
     metIds: ["priya-raman"],
     note: "Priya is hosting. Good chance to keep the Northwind pilot thread warm and meet their design team informally.",
     upcoming: true,
@@ -399,7 +394,6 @@ export const events: EventItem[] = [
     name: "Founders Mixer",
     when: "Jun 18",
     where: "The Assembly, San Francisco",
-    organizers: ["Founders Fellowship"],
     metIds: ["priya-raman", "tobias-reyes"],
     note: "Where we met Priya — she offered to review onboarding. Also reconnected with Tobias. Strong room, worth going again next quarter.",
     upcoming: false,
@@ -411,7 +405,6 @@ export const events: EventItem[] = [
     name: "Campus Startup Fair",
     when: "May 28",
     where: "Stanford Memorial Court",
-    organizers: ["Stanford E-Ship"],
     metIds: ["tobias-reyes"],
     metGuests: ["Nina Alvarez (student, wants a demo)"],
     note: "Ran a table for the fall pilot. Collected ~40 student sign-ups. Traded investor lists with Tobias at the hack night after.",
@@ -424,7 +417,6 @@ export const events: EventItem[] = [
     name: "Founders Fellowship Info Session",
     when: "May 15",
     where: "Virtual (Zoom)",
-    organizers: ["Founders Fellowship", "Elena Mora"],
     metIds: ["elena-mora", "grace-liu"],
     note: "First contact with Elena and the program. Covered the application timeline and what a strong one-pager looks like.",
     upcoming: false,

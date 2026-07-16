@@ -148,7 +148,6 @@ export function AddEventDialog() {
       when: formatWhen(input.eventDate),
       date: input.eventDate,
       where: input.location,
-      organizers: [],
       metIds: [],
       metGuests: [],
       note: "",

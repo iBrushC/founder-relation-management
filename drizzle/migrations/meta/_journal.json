@@ -36,6 +36,13 @@
       "when": 1783305593736,
       "tag": "0004_sharp_typhoid_mary",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784231597643,
+      "tag": "0005_drop_event_organizers",
+      "breakpoints": true
     }
   ]
 }

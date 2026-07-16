@@ -4,20 +4,24 @@ import { useState } from "react";
 import { Icons } from "@/lib/icons";
 import type { Connection, EventItem, Tone } from "@/lib/data";
 import { formatWhen, isUpcoming } from "@/lib/data/format";
-import { updateEvent } from "@/lib/data/actions";
-import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
+import {
+  promoteEventGuest,
+  setEventParticipants,
+  updateEvent,
+} from "@/lib/data/actions";
+import { InitialsAvatar, PersonRow, StatusBadge } from "@/components/app/primitives";
 import { EventsList } from "@/components/app/list-contexts";
-import { ChipInput, EditRow, TonePicker } from "@/components/app/edit-fields";
+import {
+  ConnectionCombobox,
+  EditRow,
+  GuestPicker,
+  TonePicker,
+} from "@/components/app/edit-fields";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { useMutationToast } from "@/components/ui/toast";
 import {
   Sheet,
   SheetContent,
@@ -51,41 +55,17 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-/** One person met — a connection (with role) or a plain-text guest. */
-function MetRow({
-  name,
-  role,
-  tone,
-}: {
-  name: string;
-  role?: string;
-  tone?: EventItem["avatarTone"];
-}) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-md border border-border bg-card px-3 py-2">
-      <InitialsAvatar name={name} tone={tone} className="size-7 text-[10px]" />
-      <div className="min-w-0 leading-tight">
-        <div className="truncate text-sm font-medium">{name}</div>
-        {role ? (
-          <div className="truncate text-xs text-muted-foreground">{role}</div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/** Sentinel `host` values that aren't a connection id. */
-const HOST_NONE = "__none__";
-const HOST_ME = "__me__";
-
 type Form = {
   name: string;
   date: string;
   location: string;
   link: string;
-  /** HOST_NONE, HOST_ME, or a connection id (whoever invited you). */
-  host: string;
-  organizers: string[];
+  /** Hosting and being invited are mutually exclusive — checking one clears the other. */
+  hostedByMe: boolean;
+  invitedById: string | null;
+  /** Guests who are connections. */
+  metIds: string[];
+  /** Guests who aren't connections (yet) — plain names. */
   metGuests: string[];
   note: string;
   avatarTone: Tone;
@@ -97,13 +77,17 @@ function toForm(e: EventItem): Form {
     date: e.date ?? "",
     location: e.where,
     link: e.link ?? "",
-    host: e.hostedByMe ? HOST_ME : (e.invitedById ?? HOST_NONE),
-    organizers: e.organizers,
+    hostedByMe: e.hostedByMe ?? false,
+    invitedById: e.invitedById ?? null,
+    metIds: e.metIds,
     metGuests: e.metGuests ?? [],
     note: e.note,
     avatarTone: e.avatarTone,
   };
 }
+
+const sameIds = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((id) => b.includes(id));
 
 export function EventPanel({
   event,
@@ -147,19 +131,25 @@ function PanelBody({
   onClose: () => void;
 }) {
   const list = EventsList.useOptional();
+  const showResult = useMutationToast();
   const [current, setCurrent] = useState<EventItem>(event);
   const [editing, setEditing] = useState(initialEditing);
   const [form, setForm] = useState<Form>(() => toForm(event));
+  // Guest currently being promoted, so its row can show progress.
+  const [promoting, setPromoting] = useState<string | null>(null);
+  // Connections promoted in this panel, held until `revalidatePath` lands and
+  // the page hands down a `connectionsById` that includes them.
+  const [promoted, setPromoted] = useState<Record<string, Connection>>({});
+
+  const peopleById = { ...connectionsById, ...promoted };
+  const people = Object.values(peopleById).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   const setInput =
     (k: "name" | "date" | "location" | "link") =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  // Connections, alphabetized, offered as "who invited you" choices.
-  const people = Object.values(connectionsById).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
 
   const startEdit = () => {
     setForm(toForm(current));
@@ -170,9 +160,6 @@ function PanelBody({
     const name = form.name.trim();
     if (!name || !form.date) return;
     const link = form.link.trim();
-    const hostedByMe = form.host === HOST_ME;
-    const invitedById =
-      form.host === HOST_ME || form.host === HOST_NONE ? null : form.host;
     const next: EventItem = {
       ...current,
       name,
@@ -180,39 +167,64 @@ function PanelBody({
       when: formatWhen(form.date),
       upcoming: isUpcoming(form.date),
       where: form.location.trim(),
-      organizers: form.organizers,
+      metIds: form.metIds,
       metGuests: form.metGuests,
       note: form.note.trim(),
       link: link || undefined,
-      hostedByMe,
-      invitedById,
+      hostedByMe: form.hostedByMe,
+      invitedById: form.invitedById,
       avatarTone: form.avatarTone,
     };
     setCurrent(next);
-    const action = () =>
-      updateEvent(current.id, {
+
+    // The event row and its guest links are separate writes; only touch the
+    // join table when the guest list actually changed.
+    const guestsChanged = !sameIds(current.metIds, form.metIds);
+    const action = async () => {
+      const result = await updateEvent(current.id, {
         name,
         eventDate: form.date,
         location: form.location,
-        organizers: form.organizers,
         metGuests: form.metGuests,
         note: form.note,
         link,
-        hostedByMe,
-        invitedById,
+        hostedByMe: form.hostedByMe,
+        invitedById: form.invitedById,
         avatarTone: form.avatarTone,
       });
+      if (!result.ok || !guestsChanged) return result;
+      return setEventParticipants(current.id, form.metIds);
+    };
     if (list) list.update(next, action);
     else void action();
     setEditing(false);
   };
 
-  const met = current.metIds
-    .map((id) => connectionsById[id])
-    .filter(Boolean);
+  /**
+   * Turn a plain-name guest into a real connection. Awaited rather than
+   * optimistic: the new connection's id only exists once the server replies.
+   */
+  const promote = async (name: string) => {
+    setPromoting(name);
+    const result = await promoteEventGuest(current.id, name);
+    setPromoting(null);
+    if (!showResult(result, { error: "Couldn't add that connection" })) return;
+    const created = result.ok ? result.data : undefined;
+    if (!created) return;
+    setPromoted((p) => ({ ...p, [created.id]: created }));
+    setCurrent((e) => ({
+      ...e,
+      metIds: [...e.metIds, created.id],
+      metGuests: (e.metGuests ?? []).filter(
+        (g) => g.toLowerCase() !== name.toLowerCase(),
+      ),
+    }));
+  };
+
+  const met = current.metIds.map((id) => peopleById[id]).filter(Boolean);
   const guests = current.metGuests ?? [];
   const invitedBy = current.invitedById
-    ? connectionsById[current.invitedById]
+    ? peopleById[current.invitedById]
     : undefined;
 
   return (
@@ -277,39 +289,48 @@ function PanelBody({
                 placeholder="https://lu.ma/…"
               />
             </EditRow>
-            <EditRow label="Host / invited by">
-              <Select
-                value={form.host}
-                onValueChange={(host) => setForm((f) => ({ ...f, host }))}
+
+            <div className="flex flex-col gap-3">
+              <label
+                htmlFor="e-hosting"
+                className="flex w-fit cursor-pointer items-center gap-2.5 text-sm"
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={HOST_NONE}>No one in particular</SelectItem>
-                  <SelectItem value={HOST_ME}>I&rsquo;m hosting</SelectItem>
-                  {people.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      Invited by {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </EditRow>
-            <EditRow label="Organizers">
-              <ChipInput
-                value={form.organizers}
-                onChange={(organizers) =>
-                  setForm((f) => ({ ...f, organizers }))
+                <Checkbox
+                  id="e-hosting"
+                  checked={form.hostedByMe}
+                  onCheckedChange={(checked) =>
+                    setForm((f) => ({
+                      ...f,
+                      hostedByMe: checked === true,
+                      // You either host or you're invited, never both.
+                      invitedById: checked === true ? null : f.invitedById,
+                    }))
+                  }
+                />
+                I&rsquo;m hosting this event
+              </label>
+              {!form.hostedByMe ? (
+                <EditRow label="Invited by">
+                  <ConnectionCombobox
+                    people={people}
+                    value={form.invitedById}
+                    onChange={(invitedById) =>
+                      setForm((f) => ({ ...f, invitedById }))
+                    }
+                    emptyLabel="No one in particular"
+                  />
+                </EditRow>
+              ) : null}
+            </div>
+
+            <EditRow label="Guests">
+              <GuestPicker
+                people={people}
+                metIds={form.metIds}
+                guests={form.metGuests}
+                onChange={({ metIds, guests }) =>
+                  setForm((f) => ({ ...f, metIds, metGuests: guests }))
                 }
-                placeholder="Add an organizer…"
-              />
-            </EditRow>
-            <EditRow label="Guests (not yet connections)">
-              <ChipInput
-                value={form.metGuests}
-                onChange={(metGuests) => setForm((f) => ({ ...f, metGuests }))}
-                placeholder="Add a guest…"
               />
             </EditRow>
             <EditRow label="Avatar color">
@@ -337,11 +358,6 @@ function PanelBody({
                 {current.where ? (
                   <Field icon={Icons.pin}>{current.where}</Field>
                 ) : null}
-                {current.organizers.length > 0 ? (
-                  <Field icon={Icons.users}>
-                    {current.organizers.join(" · ")}
-                  </Field>
-                ) : null}
                 {current.hostedByMe ? (
                   <Field icon={Icons.star}>You&rsquo;re hosting</Field>
                 ) : invitedBy ? (
@@ -363,21 +379,44 @@ function PanelBody({
               </div>
             </Block>
 
-            <Block title="Who was met">
+            <Block title="Guests">
               {met.length === 0 && guests.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No one logged yet.</p>
               ) : (
                 <div className="flex flex-col gap-1.5">
                   {met.map((c) => (
-                    <MetRow
+                    <PersonRow
                       key={c.id}
                       name={c.name}
-                      role={[c.role, c.company].filter(Boolean).join(" · ")}
+                      subtitle={[c.role, c.company].filter(Boolean).join(" · ")}
                       tone={c.avatarTone}
                     />
                   ))}
                   {guests.map((name) => (
-                    <MetRow key={name} name={name} tone="slate" />
+                    <PersonRow
+                      key={name}
+                      name={name}
+                      subtitle="Not a connection"
+                      tone="slate"
+                      action={
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={promoting !== null}
+                          onClick={() => promote(name)}
+                          aria-label={`Make ${name} a connection`}
+                          className="shrink-0"
+                        >
+                          {promoting === name ? (
+                            "Adding…"
+                          ) : (
+                            <>
+                              <Icons.plus /> Connection
+                            </>
+                          )}
+                        </Button>
+                      }
+                    />
                   ))}
                 </div>
               )}

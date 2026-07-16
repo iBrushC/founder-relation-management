@@ -126,7 +126,6 @@ export const UpdateEventPatch = z.object({
   name,
   eventDate: zDate,
   location: shortText.optional(),
-  organizers: zStrList.optional(),
   metGuests: zStrList.optional(),
   note: longText.optional(),
   link: url.optional(),
@@ -134,6 +133,9 @@ export const UpdateEventPatch = z.object({
   invitedById: zUuidOrEmpty.nullable().optional(),
   avatarTone: zTone.optional(),
 });
+
+/** The full set of connection-backed guests at an event — replaces, not appends. */
+export const EventParticipantsInput = z.array(zUuid).max(500);
 
 export const UpdateProjectPatch = z.object({
   name,

@@ -6,7 +6,7 @@ import { listConnections, listEvents, listProjects } from "@/lib/data/crm";
  * A single result in the global (top-bar) search. Flattened from the CRM read
  * types into just what the command palette needs to render and navigate: a
  * label, a bit of context, where selecting it goes, and extra `keywords` so a
- * match can hit fields we don't show (tags, notes, organizers, emails…).
+ * match can hit fields we don't show (tags, notes, guests, emails…).
  */
 export type SearchItem = {
   id: string;
@@ -75,9 +75,7 @@ export async function buildSearchIndex(): Promise<SearchItem[]> {
       title: e.name,
       subtitle: [e.when, e.where].filter(Boolean).join(" · "),
       href: `/events?focus=${encodeURIComponent(e.id)}`,
-      keywords: [e.note, ...e.organizers, ...(e.metGuests ?? [])]
-        .filter(Boolean)
-        .join(" "),
+      keywords: [e.note, ...(e.metGuests ?? [])].filter(Boolean).join(" "),
     });
   }
 

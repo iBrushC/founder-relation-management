@@ -86,7 +86,7 @@ export function EventsView({
     return rows.filter((e) => {
       const matchesQuery =
         !q ||
-        [e.name, e.where, ...e.organizers].some((f) =>
+        [e.name, e.where, ...(e.metGuests ?? [])].some((f) =>
           f.toLowerCase().includes(q),
         );
       const matchesWhen =
@@ -104,7 +104,7 @@ export function EventsView({
         <ListToolbar
           query={query}
           onQuery={setQuery}
-          placeholder="Search by name, place, or organizer…"
+          placeholder="Search by name, place, or guest…"
           filter={
             <Select value={when} onValueChange={setWhen}>
               <SelectTrigger className="h-9 w-40">
