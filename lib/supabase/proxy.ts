@@ -10,6 +10,13 @@ import { NextResponse, type NextRequest } from "next/server";
 const AUTH_ROUTES = ["/login", "/signup"];
 
 /**
+ * Public to everyone, signed in or out. Unlike AUTH_ROUTES these are *not*
+ * bounced to the dashboard for a signed-in visitor — a logged-in user following
+ * the footer link to the privacy policy should get the privacy policy.
+ */
+const PUBLIC_ROUTES = ["/privacy", "/terms"];
+
+/**
  * Security architecture, layer 1 of 3: the proxy.
  *
  * Refreshes the Supabase session cookie on every request (keeping tokens from
@@ -58,7 +65,8 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthPage = AUTH_ROUTES.some((r) => path.startsWith(r));
-  const isPublic = path === "/" || isAuthPage;
+  const isPublic =
+    path === "/" || isAuthPage || PUBLIC_ROUTES.some((r) => path.startsWith(r));
 
   // Signed out and trying to reach a protected route → send to login.
   if (!user && !isPublic) {

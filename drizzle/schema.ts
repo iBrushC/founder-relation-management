@@ -448,9 +448,50 @@ export const eventParticipants = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/*  google_accounts — linked Google OAuth grants                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A user's linked Google account, holding the OAuth refresh/access tokens that
+ * let SFRM call the Gmail API on their behalf.
+ *
+ * RLS is enabled with NO policies, which is deliberate and load-bearing: an
+ * enabled-but-policy-less table denies the `authenticated` role everything, so
+ * the anon key in the browser cannot read this table via PostgREST even with a
+ * valid session. That matters because a refresh token here grants Gmail read
+ * access — a `select` policy scoped to the owner (the pattern every other table
+ * uses) would let the user's own browser fetch it, putting it one XSS away from
+ * exfiltration. Reads therefore go through `lib/google/tokens.ts` on the trusted
+ * `postgres` connection (`lib/db`), never `withUserRLS`.
+ *
+ * Tokens are additionally encrypted at rest (AES-256-GCM, see `lib/google/crypto.ts`)
+ * so a database dump alone is not enough to read anyone's mail.
+ */
+export const googleAccounts = pgTable("google_accounts", {
+  /** PK, not just FK: one linked Google account per user. */
+  ownerId: uuid("owner_id")
+    .primaryKey()
+    .references(() => profiles.id, { onDelete: "cascade" }),
+  /** Google's stable user id (the `sub` claim) — survives an email change. */
+  googleUserId: text("google_user_id").notNull(),
+  /** The Google account's email, shown in Settings. Not an SFRM identity. */
+  email: text().notNull(),
+  accessTokenEnc: text("access_token_enc").notNull(),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", {
+    withTimezone: true,
+  }).notNull(),
+  /** Space-delimited, exactly as Google returned it — what was actually granted. */
+  scope: text().notNull(),
+  ...timestamps,
+}).enableRLS();
+
+/* ------------------------------------------------------------------ */
 /*  Inferred row types                                                 */
 /* ------------------------------------------------------------------ */
 
+export type GoogleAccountRow = typeof googleAccounts.$inferSelect;
+export type NewGoogleAccountRow = typeof googleAccounts.$inferInsert;
 export type ProfileRow = typeof profiles.$inferSelect;
 export type NewProfileRow = typeof profiles.$inferInsert;
 export type ConnectionRow = typeof connections.$inferSelect;

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SiteFooter } from "@/components/marketing/site-footer";
 
 export default function AuthLayout({
   children,
@@ -23,9 +24,7 @@ export default function AuthLayout({
           <div className="w-full max-w-sm">{children}</div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          Student Founder Relation Management
-        </p>
+        <SiteFooter />
       </div>
 
       {/* Brand column — gradient patterns + quote, hidden on small screens */}

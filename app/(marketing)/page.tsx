@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { LandingDemo } from "@/components/marketing/landing-demo";
+import { SiteFooter } from "@/components/marketing/site-footer";
 import { TileBackground } from "@/components/marketing/tile-background";
 
 export const metadata: Metadata = {
@@ -97,11 +98,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="mx-auto w-full max-w-5xl px-6 py-8">
-        <p className="text-xs text-muted-foreground">
-          Student Founder Relation Management
-        </p>
-      </footer>
+      <SiteFooter className="mx-auto w-full max-w-5xl px-6 py-8" />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import type { GoogleIntegration } from "@/lib/data/integrations";
 import type { Profile } from "@/lib/data/profiles";
 import type { SearchItem } from "@/lib/data/search";
 
@@ -18,6 +19,28 @@ export function useProfile() {
     fetcher,
   );
   return { profile: data ?? null, isLoading, error, mutate };
+}
+
+async function googleFetcher(url: string): Promise<GoogleIntegration | null> {
+  const res = await fetch(url);
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error("Failed to load Google integration");
+  return res.json();
+}
+
+/**
+ * The signed-in user's Google link, for the Settings integrations row.
+ *
+ * `revalidateOnFocus` is left on (the SWR default) on purpose: connecting sends
+ * the user out to Google and back, and returning to the tab is exactly when this
+ * is most likely to be stale.
+ */
+export function useGoogleIntegration() {
+  const { data, error, isLoading, mutate } = useSWR<GoogleIntegration | null>(
+    "/api/integrations/google/status",
+    googleFetcher,
+  );
+  return { google: data ?? null, isLoading, error, mutate };
 }
 
 async function searchFetcher(url: string): Promise<SearchItem[]> {

@@ -10,9 +10,11 @@ import { profileExtras, type ResumeRef } from "@/lib/data/profile-shared";
 import { deleteAllData } from "@/lib/data/actions";
 import type { Profile } from "@/lib/data/profiles";
 import { Section } from "@/components/app/layout-bits";
-import { InitialsAvatar, StatusBadge } from "@/components/app/primitives";
+import { InitialsAvatar } from "@/components/app/primitives";
 import { SampleDataButton } from "@/components/app/sample-data-button";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { IntegrationRow } from "@/components/app/integration-row";
+import { GoogleIntegrationRow } from "@/components/app/google-integration-row";
 import { ResumeField } from "@/components/app/resume-field";
 import { ExportSection } from "@/components/app/settings-export";
 import { EditRow } from "@/components/app/edit-fields";
@@ -163,62 +165,6 @@ function IntervalControl({
         {trailing}
       </span>
     </>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Section: Integrations                                              */
-/* ------------------------------------------------------------------ */
-
-function IntegrationRow({
-  logo,
-  name,
-  description,
-  connected,
-  account,
-  onToggle,
-}: {
-  logo: string;
-  name: string;
-  description: string;
-  connected: boolean;
-  account: string;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-3.5 px-4 py-3">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background">
-        {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
-        <img
-          src={logo}
-          alt={`${name} logo`}
-          className="size-[18px] object-contain"
-        />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">{name}</div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {connected ? `Connected · ${account}` : description}
-        </p>
-      </div>
-      {connected ? (
-        <div className="flex items-center gap-2">
-          <StatusBadge label="Connected" tone="green" />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            onClick={onToggle}
-          >
-            Disconnect
-          </Button>
-        </div>
-      ) : (
-        <Button variant="outline" size="sm" onClick={onToggle}>
-          <Icons.link className="size-3.5" /> Connect
-        </Button>
-      )}
-    </div>
   );
 }
 
@@ -392,7 +338,6 @@ function AboutSection({
 export function SettingsView() {
   // The signed-in user's real profile (name/email + extended fields in settings).
   const { profile, isLoading, mutate } = useProfile();
-  const email = profile?.email ?? "";
 
   // Account actions — reset password and sign out.
   const [resetting, startResetting] = useTransition();
@@ -417,8 +362,7 @@ export function SettingsView() {
   const [events, setEvents] = useState({ on: true, timing: "day-of" });
   const [followups, setFollowups] = useState({ on: true, count: 3, interval: 7 });
 
-  // Integrations
-  const [google, setGoogle] = useState(true);
+  // Integrations — Google owns its own state; LinkedIn is still a stub.
   const [linkedin, setLinkedin] = useState(false);
 
   // Danger zone — wipe all CRM data (keeps the account).
@@ -543,21 +487,16 @@ export function SettingsView() {
       {/* ---- Integrations ---- */}
       <Section title="Integrations">
         <Card>
-          <IntegrationRow
-            logo="/google.png"
-            name="Google"
-            description="Sync contacts and calendar events."
-            connected={google}
-            account={email}
-            onToggle={() => setGoogle((v) => !v)}
-          />
+          <GoogleIntegrationRow />
+          {/* Still a stub: local state only, connects to nothing. */}
           <IntegrationRow
             logo="/linkedin.png"
             name="LinkedIn"
             description="Import connections and enrich profiles."
             connected={linkedin}
             account="Maya Chen"
-            onToggle={() => setLinkedin((v) => !v)}
+            onConnect={() => setLinkedin(true)}
+            onDisconnect={() => setLinkedin(false)}
           />
         </Card>
       </Section>

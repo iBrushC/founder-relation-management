@@ -43,6 +43,13 @@
       "when": 1784231597643,
       "tag": "0005_drop_event_organizers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784239365748,
+      "tag": "0006_faithful_genesis",
+      "breakpoints": true
     }
   ]
 }
