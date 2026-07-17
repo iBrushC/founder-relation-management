@@ -20,13 +20,21 @@ export type GoogleIntegration = {
   /** The linked Google account's email, which may differ from the SFRM login. */
   email: string | null;
   connectedAt: string | null;
+  /** Null until the first Gmail sync. Sync is manual, so the UI shows staleness. */
+  lastSyncedAt: string | null;
 };
 
 export async function getGoogleIntegration(): Promise<GoogleIntegration> {
   const { userId } = await verifySession();
 
   if (!isGoogleConfigured()) {
-    return { configured: false, connected: false, email: null, connectedAt: null };
+    return {
+      configured: false,
+      connected: false,
+      email: null,
+      connectedAt: null,
+      lastSyncedAt: null,
+    };
   }
 
   const status = await getGoogleAccountStatus(userId);
@@ -36,5 +44,6 @@ export async function getGoogleIntegration(): Promise<GoogleIntegration> {
     connected: status.connected,
     email: status.email,
     connectedAt: status.connectedAt?.toISOString() ?? null,
+    lastSyncedAt: status.lastSyncedAt?.toISOString() ?? null,
   };
 }

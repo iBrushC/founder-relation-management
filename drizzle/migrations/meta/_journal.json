@@ -50,6 +50,13 @@
       "when": 1784239365748,
       "tag": "0006_faithful_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784247340848,
+      "tag": "0007_hard_selene",
+      "breakpoints": true
     }
   ]
 }

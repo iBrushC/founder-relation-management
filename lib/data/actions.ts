@@ -590,6 +590,19 @@ function orNull(s: string | undefined | null): string | null {
 }
 
 /**
+ * Tidy a list of email addresses for storage: trimmed, lowercased, blanks and
+ * duplicates dropped. Addresses compare case-insensitively in practice, and
+ * these are matched against Gmail — so store them in the form they'll be
+ * compared in rather than making every reader normalise again.
+ */
+function normalizeAddresses(list: string[]): string[] {
+  const cleaned = list
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => a.length > 0);
+  return [...new Set(cleaned)];
+}
+
+/**
  * Update a connection's editable fields. Tags and avatar tone are set from the
  * inline panel; birthday arrives as an ISO date (or null to clear). Timeline and
  * notes have their own actions below since they're read-modify-write on JSONB.
@@ -601,6 +614,7 @@ export async function updateConnection(
     role?: string;
     company?: string;
     email?: string;
+    altEmails?: string[];
     phone?: string;
     location?: string;
     linkedin?: string;
@@ -630,6 +644,12 @@ export async function updateConnection(
           ...(patch.tags ? { tags: patch.tags } : {}),
           ...(patch.avatarTone ? { avatarTone: patch.avatarTone } : {}),
           ...(patch.extraFields ? { extraFields: patch.extraFields } : {}),
+          // Normalised here rather than at the edge: these are matched against
+          // Gmail's addresses, which are case-insensitive, and a stray blank row
+          // from the editor would otherwise become a wasted search per sync.
+          ...(patch.altEmails
+            ? { altEmails: normalizeAddresses(patch.altEmails) }
+            : {}),
         })
         .where(eq(connections.id, id)),
     );

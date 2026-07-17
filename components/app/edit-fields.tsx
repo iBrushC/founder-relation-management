@@ -651,3 +651,105 @@ export function KeyValueEditor({
     </div>
   );
 }
+
+/**
+ * Edit a list of additional email addresses for one person.
+ *
+ * Separate from the primary `email` field rather than replacing it: the primary
+ * is what the app displays, exports, and copies into outreach. These extras earn
+ * their keep by widening Gmail matching — someone who emails from both a work
+ * and a personal address should still land on one timeline.
+ *
+ * Duplicates and blanks are rejected on the way in; the save action normalises
+ * (trim/lowercase/dedupe) again before storing, since this isn't a trust
+ * boundary.
+ */
+export function EmailListEditor({
+  value,
+  primary,
+  onChange,
+  max = 10,
+}: {
+  value: string[];
+  /** The primary address, so we can refuse to add it twice. */
+  primary?: string;
+  onChange: (emails: string[]) => void;
+  max?: number;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const normalized = (s: string) => s.trim().toLowerCase();
+  const taken = new Set([
+    ...(primary ? [normalized(primary)] : []),
+    ...value.map(normalized),
+  ]);
+  const candidate = normalized(draft);
+  // A minimal shape check only. Real validation is "does Gmail match it", and
+  // an over-strict regex would reject valid-but-unusual addresses.
+  const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(candidate);
+  const canAdd = looksLikeEmail && !taken.has(candidate) && value.length < max;
+
+  const add = () => {
+    if (!canAdd) return;
+    onChange([...value, candidate]);
+    setDraft("");
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {value.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {value.map((address, i) => (
+            <div
+              key={`${address}-${i}`}
+              className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5"
+            >
+              <Icons.mail className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm">{address}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${address}`}
+                onClick={() => onChange(value.filter((_, j) => j !== i))}
+                className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-black/10"
+              >
+                <Icons.x className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {value.length < max ? (
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="email"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            placeholder="another@address.com"
+            className="h-8 flex-1"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            onClick={add}
+            disabled={!canAdd}
+            aria-label="Add email address"
+          >
+            <Icons.plus className="size-4" />
+          </Button>
+        </div>
+      ) : null}
+      {draft.trim() && taken.has(candidate) ? (
+        <p className="text-xs text-muted-foreground">
+          That address is already on this person.
+        </p>
+      ) : null}
+    </div>
+  );
+}

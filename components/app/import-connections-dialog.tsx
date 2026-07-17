@@ -140,6 +140,8 @@ export function ImportConnectionsDialog() {
       note: input.note ?? "",
       extraFields: [],
       timeline: [],
+      altEmails: [],
+      emailThreads: [],
     }));
 
     list.addMany(optimistic, () => importConnections(inputs));

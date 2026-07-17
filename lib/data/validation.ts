@@ -106,11 +106,19 @@ export const CreateProjectInput = z.object({
   summary: longText.optional(),
 });
 
+/**
+ * Extra addresses for one person. Capped at 10 — a real contact has a work and a
+ * personal address, maybe a third; anything beyond that is a mistake or abuse,
+ * and each one costs a Gmail search on every sync.
+ */
+export const zAltEmails = z.array(email).max(10);
+
 export const UpdateConnectionPatch = z.object({
   name,
   role: shortText.optional(),
   company: shortText.optional(),
   email: email.optional(),
+  altEmails: zAltEmails.optional(),
   phone: phone.optional(),
   location: shortText.optional(),
   linkedin: url.optional(),

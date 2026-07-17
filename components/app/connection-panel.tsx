@@ -7,6 +7,7 @@ import { Icons } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
 import type {
   Connection,
+  EmailThread as EmailThreadType,
   ExtraField,
   Interaction,
   Tag as TagType,
@@ -34,6 +35,7 @@ import { InitialsAvatar, Tag } from "@/components/app/primitives";
 import { ConnectionsList } from "@/components/app/list-contexts";
 import {
   EditRow,
+  EmailListEditor,
   KeyValueEditor,
   TagEditor,
   TonePicker,
@@ -99,12 +101,86 @@ function Block({
   );
 }
 
+/**
+ * One row of the displayed timeline: either a hand-written interaction or a
+ * synced Gmail chain.
+ *
+ * A log entry carries its `index` into `connection.timeline` explicitly. That's
+ * the whole point of this type: edit and delete address entries by array index,
+ * so once synced threads are interleaved, the position in *this* list no longer
+ * matches the position in the stored array. Carrying the index makes the
+ * distinction impossible to get wrong by accident.
+ */
+type TimelineEntry =
+  | { kind: "log"; item: Interaction; index: number; date: string }
+  | { kind: "email"; thread: EmailThreadType; date: string };
+
+/**
+ * Interleave hand-written interactions with synced Gmail, most recent first.
+ * Display-only — neither source is mutated, and synced entries never enter the
+ * array the write actions replace.
+ */
+function mergeTimeline(c: Connection): TimelineEntry[] {
+  const logs: TimelineEntry[] = c.timeline.map((item, index) => ({
+    kind: "log",
+    item,
+    index,
+    date: item.date ?? "",
+  }));
+  const mail: TimelineEntry[] = c.emailThreads.map((thread) => ({
+    kind: "email",
+    thread,
+    date: thread.date,
+  }));
+  // Undated legacy logs sort to the bottom, matching sortInteractions.
+  return [...logs, ...mail].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/** A synced Gmail chain. Read-only: no edit or delete, unlike a logged entry. */
+function EmailThreadItem({ thread }: { thread: EmailThreadType }) {
+  const count =
+    thread.messageCount > 1 ? `${thread.messageCount} messages` : "1 message";
+  const direction =
+    thread.direction === "sent"
+      ? "Sent"
+      : thread.direction === "received"
+        ? "Received"
+        : "Back and forth";
+
+  return (
+    <li className="flex flex-col gap-1.5 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <Icons.mail className="size-3.5" />
+        </span>
+        <span className="truncate text-sm font-medium">
+          {thread.subject || "(no subject)"}
+        </span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+          {thread.when}
+        </span>
+      </div>
+      {thread.snippet ? (
+        <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+          {thread.snippet}
+        </p>
+      ) : null}
+      {/* Says where this came from and why it can't be edited here. */}
+      <p className="text-xs text-muted-foreground/80">
+        {direction} · {count} · from Gmail
+      </p>
+    </li>
+  );
+}
+
 /** The connection's editable fields, held while in edit mode. */
 type Form = {
   name: string;
   role: string;
   company: string;
   email: string;
+  /** Additional addresses; `email` stays the primary one. */
+  altEmails: string[];
   phone: string;
   location: string;
   linkedin: string;
@@ -122,6 +198,7 @@ function toForm(c: Connection): Form {
     role: c.role,
     company: c.company,
     email: c.email,
+    altEmails: c.altEmails,
     phone: c.phone,
     location: c.location,
     linkedin: c.linkedin,
@@ -271,12 +348,16 @@ function PanelBody({
     const extraFields = form.extraFields
       .map((f) => ({ label: f.label.trim(), value: f.value.trim() }))
       .filter((f) => f.label && f.value);
+    // Drop rows the user left blank. The action normalises (lowercase, dedupe)
+    // before storing; this just keeps the optimistic copy honest.
+    const altEmails = form.altEmails.map((a) => a.trim()).filter(Boolean);
     const next: Connection = {
       ...current,
       name,
       role: form.role.trim(),
       company: form.company.trim(),
       email: form.email.trim(),
+      altEmails,
       phone: form.phone.trim(),
       location: form.location.trim(),
       linkedin: form.linkedin.trim(),
@@ -293,6 +374,7 @@ function PanelBody({
         role: form.role,
         company: form.company,
         email: form.email,
+        altEmails,
         phone: form.phone,
         location: form.location,
         linkedin: form.linkedin,
@@ -371,6 +453,8 @@ function PanelBody({
     setDetailsOpen(false);
   };
 
+  const mergedTimeline = mergeTimeline(current);
+
   return (
     <>
       <div className="flex flex-col gap-3 border-b border-border p-5 pr-12">
@@ -428,6 +512,23 @@ function PanelBody({
                 value={form.email}
                 onChange={setInput("email")}
               />
+            </EditRow>
+            {/*
+              Optional and secondary by design: most people need one address, so
+              this stays out of the way until there's a reason to open it. It
+              exists mainly so Gmail sync can find mail sent from a second
+              address — hence the hint.
+            */}
+            <EditRow label="Other email addresses">
+              <EmailListEditor
+                value={form.altEmails}
+                primary={form.email}
+                onChange={setField("altEmails")}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Also matched when syncing Gmail — add a work or personal address
+                they email from.
+              </p>
             </EditRow>
             <div className="grid grid-cols-2 gap-3">
               <EditRow label="Phone" htmlFor="c-phone">
@@ -494,6 +595,11 @@ function PanelBody({
                 {current.email ? (
                   <Field icon={Icons.mail}>{current.email}</Field>
                 ) : null}
+                {current.altEmails.map((address) => (
+                  <Field key={address} icon={Icons.mail}>
+                    <span className="text-muted-foreground">{address}</span>
+                  </Field>
+                ))}
                 {current.phone ? (
                   <Field icon={Icons.phone}>{current.phone}</Field>
                 ) : null}
@@ -516,6 +622,7 @@ function PanelBody({
                   <Field icon={Icons.cake}>Birthday · {current.birthday}</Field>
                 ) : null}
                 {!current.email &&
+                current.altEmails.length === 0 &&
                 !current.phone &&
                 !current.location &&
                 !current.linkedin &&
@@ -657,9 +764,15 @@ function PanelBody({
                   </div>
                 </div>
               ) : null}
-              {current.timeline.length > 0 ? (
+              {mergedTimeline.length > 0 ? (
                 <ol className="flex flex-col gap-2">
-                  {current.timeline.map((item, i) => {
+                  {mergedTimeline.map((entry) => {
+                    if (entry.kind === "email") {
+                      return (
+                        <EmailThreadItem key={entry.thread.id} thread={entry.thread} />
+                      );
+                    }
+                    const { item, index } = entry;
                     const Icon = item.type
                       ? Icons[interactionTypeIcon[item.type]]
                       : Icons.message;
@@ -671,7 +784,7 @@ function PanelBody({
                       formatInteractionWhen(item.date, item.until) ?? item.when;
                     return (
                       <li
-                        key={i}
+                        key={`log-${index}`}
                         className="group flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5"
                       >
                         <div className="flex items-center gap-2">
@@ -688,7 +801,7 @@ function PanelBody({
                             <button
                               type="button"
                               aria-label="Edit interaction"
-                              onClick={() => editLog(i)}
+                              onClick={() => editLog(index)}
                               className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted"
                             >
                               <Icons.edit className="size-3.5" />
@@ -696,7 +809,7 @@ function PanelBody({
                             <button
                               type="button"
                               aria-label="Delete interaction"
-                              onClick={() => deleteLog(i)}
+                              onClick={() => deleteLog(index)}
                               className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted"
                             >
                               <Icons.x className="size-3.5" />

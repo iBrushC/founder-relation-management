@@ -82,6 +82,10 @@ export function AddConnectionDialog({
       note: "",
       extraFields: [],
       timeline: [],
+      // A brand-new connection has neither: extra addresses are added by editing,
+      // and Gmail threads only appear after a sync.
+      altEmails: [],
+      emailThreads: [],
     };
     list.add(optimistic, () => createConnection(input));
     setForm({ name: "", role: "", company: "", email: "" });

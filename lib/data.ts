@@ -50,6 +50,29 @@ export type Interaction = {
   until?: string;
 };
 
+/** Who sent what, relative to the user's own linked Google account. */
+export type EmailDirection = "sent" | "received" | "both";
+
+/**
+ * A Gmail conversation mirrored onto a connection — one whole chain, not one
+ * message. Read-only: it reflects the user's mailbox, so it's rendered in the
+ * timeline but never edited there. Hand-written entries are `Interaction`s and
+ * live on a separate field; the two are only merged for display.
+ */
+export type EmailThread = {
+  id: string;
+  /** Subject of the first message ("" when the thread has none). */
+  subject: string;
+  /** Gmail's short preview of the latest message. Never a full body. */
+  snippet: string;
+  /** ISO date (YYYY-MM-DD) of the most recent message — sorts with interactions. */
+  date: string;
+  /** Human "when" label for the most recent message. */
+  when: string;
+  messageCount: number;
+  direction: EmailDirection;
+};
+
 /** A free-form key/value pair kept under a connection's "additional information". */
 export type ExtraField = { label: string; value: string };
 
@@ -65,6 +88,8 @@ export type Connection = {
   /** Lower = more recent. Used only for display ordering of demo data. */
   rank: number;
   email: string;
+  /** Additional addresses for the same person. `email` stays the primary. */
+  altEmails: string[];
   phone: string;
   location: string;
   /** Full LinkedIn profile URL (or "" when unset). */
@@ -73,7 +98,15 @@ export type Connection = {
   note: string;
   /** Extra key/value details beyond the fixed contact fields. */
   extraFields: ExtraField[];
+  /**
+   * The hand-written timeline, and ONLY that. Synced Gmail lives in
+   * `emailThreads` — keeping them apart is load-bearing, not tidiness: the
+   * panel edits and deletes entries by their index into this array, so mixing
+   * in synced rows would silently retarget those writes onto the wrong entry.
+   */
   timeline: Interaction[];
+  /** Mirrored Gmail chains, most-recent first. Read-only in the UI. */
+  emailThreads: EmailThread[];
 };
 
 /** A past or upcoming event — mixers, demo days, meetups, info sessions. */
@@ -225,6 +258,7 @@ export const connections: Connection[] = [
     last: "2h ago",
     rank: 1,
     email: "priya@northwind.co",
+    altEmails: [],
     phone: "+1 (415) 555-0142",
     location: "San Francisco, CA",
     linkedin: "https://www.linkedin.com/in/priya-raman",
@@ -239,6 +273,7 @@ export const connections: Connection[] = [
       { label: "Intro call", when: "5 days ago" },
       { label: "Connected at Founders mixer", when: "Jun 18" },
     ],
+    emailThreads: [],
   },
   {
     id: "sam-whitfield",
@@ -250,6 +285,7 @@ export const connections: Connection[] = [
     last: "Yesterday",
     rank: 2,
     email: "sam@alder.vc",
+    altEmails: [],
     phone: "+1 (628) 555-0199",
     location: "Menlo Park, CA",
     linkedin: "https://www.linkedin.com/in/samwhitfield",
@@ -260,6 +296,7 @@ export const connections: Connection[] = [
       { label: "Requested pitch deck", when: "Yesterday" },
       { label: "Warm intro from Grace", when: "Jun 30" },
     ],
+    emailThreads: [],
   },
   {
     id: "david-okafor",
@@ -271,6 +308,7 @@ export const connections: Connection[] = [
     last: "3 days ago",
     rank: 3,
     email: "david@lumen.study",
+    altEmails: [],
     phone: "+1 (312) 555-0177",
     location: "Chicago, IL",
     linkedin: "https://www.linkedin.com/in/davidokafor",
@@ -281,6 +319,7 @@ export const connections: Connection[] = [
       { label: "Pushed ranking model v2", when: "3 days ago" },
       { label: "Sprint planning", when: "1 week ago" },
     ],
+    emailThreads: [],
   },
   {
     id: "grace-liu",
@@ -292,6 +331,7 @@ export const connections: Connection[] = [
     last: "1 week ago",
     rank: 4,
     email: "grace.liu@figma.com",
+    altEmails: [],
     phone: "+1 (206) 555-0110",
     location: "Seattle, WA",
     linkedin: "https://www.linkedin.com/in/graceliu",
@@ -302,6 +342,7 @@ export const connections: Connection[] = [
       { label: "Monthly mentor call", when: "1 week ago" },
       { label: "Sent positioning notes", when: "Jun 12" },
     ],
+    emailThreads: [],
   },
   {
     id: "tobias-reyes",
@@ -313,6 +354,7 @@ export const connections: Connection[] = [
     last: "2 weeks ago",
     rank: 5,
     email: "tobi@hey.com",
+    altEmails: [],
     phone: "+1 (971) 555-0166",
     location: "Portland, OR",
     linkedin: "https://www.linkedin.com/in/tobiasreyes",
@@ -323,6 +365,7 @@ export const connections: Connection[] = [
       { label: "Traded investor lists", when: "2 weeks ago" },
       { label: "Hack night", when: "May 28" },
     ],
+    emailThreads: [],
   },
   {
     id: "elena-mora",
@@ -337,6 +380,7 @@ export const connections: Connection[] = [
     last: "3 weeks ago",
     rank: 6,
     email: "elena@foundersfellowship.org",
+    altEmails: [],
     phone: "+1 (617) 555-0121",
     location: "Boston, MA",
     linkedin: "https://www.linkedin.com/in/elenamora",
@@ -347,6 +391,7 @@ export const connections: Connection[] = [
       { label: "Submitted application", when: "3 weeks ago" },
       { label: "Info session", when: "May 15" },
     ],
+    emailThreads: [],
   },
 ];
 

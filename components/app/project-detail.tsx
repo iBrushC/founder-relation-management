@@ -189,6 +189,8 @@ export function ProjectDetail({
       note: "",
       extraFields: [],
       timeline: [],
+      altEmails: [],
+      emailThreads: [],
     };
     peopleList.add(optimistic, () => createLinkedConnection(view.id, input));
     setAddingPerson(false);

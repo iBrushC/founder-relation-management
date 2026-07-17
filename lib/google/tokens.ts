@@ -2,7 +2,7 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 
-import { googleAccounts } from "@/drizzle/schema";
+import { emailThreads, googleAccounts } from "@/drizzle/schema";
 import { db } from "@/lib/db";
 import { decryptToken, encryptToken } from "./crypto";
 import {
@@ -33,6 +33,8 @@ export type GoogleAccountStatus = {
   email: string | null;
   scope: string | null;
   connectedAt: Date | null;
+  /** Null until the first Gmail sweep. Sync is manual, so the UI surfaces this. */
+  lastSyncedAt: Date | null;
 };
 
 /** Persist a fresh grant, replacing any existing link for this user. */
@@ -73,18 +75,28 @@ export async function getGoogleAccountStatus(
       email: googleAccounts.email,
       scope: googleAccounts.scope,
       createdAt: googleAccounts.createdAt,
+      lastSyncedAt: googleAccounts.lastSyncedAt,
     })
     .from(googleAccounts)
     .where(eq(googleAccounts.ownerId, ownerId))
     .limit(1);
 
-  if (!row) return { connected: false, email: null, scope: null, connectedAt: null };
+  if (!row) {
+    return {
+      connected: false,
+      email: null,
+      scope: null,
+      connectedAt: null,
+      lastSyncedAt: null,
+    };
+  }
 
   return {
     connected: true,
     email: row.email,
     scope: row.scope,
     connectedAt: row.createdAt,
+    lastSyncedAt: row.lastSyncedAt,
   };
 }
 
@@ -120,6 +132,12 @@ export async function getAccessToken(ownerId: string): Promise<string | null> {
     if (e instanceof GoogleAuthError) {
       // The grant is gone for good — retrying can't fix it. Clear the dead row
       // so Settings stops claiming "Connected" and offers Connect instead.
+      //
+      // Mirrored `email_threads` are deliberately NOT dropped here, unlike in
+      // `disconnectGoogleAccount`. Losing a token is not the same as asking us
+      // to forget your mail: in a Testing-mode project refresh tokens expire
+      // every 7 days, so deleting here would silently wipe the user's timeline
+      // roughly weekly. Reconnecting re-syncs and upserts over what's there.
       await db.delete(googleAccounts).where(eq(googleAccounts.ownerId, ownerId));
     }
     throw e;
@@ -143,6 +161,13 @@ export async function getAccessToken(ownerId: string): Promise<string | null> {
 /**
  * Drop the link and ask Google to forget the grant. Revocation is best-effort —
  * our row goes regardless, so "Disconnect" always works from the user's side.
+ *
+ * Mirrored Gmail threads go too. "Stop reading my mail" should mean the mail
+ * leaves, and keeping them would strand a copy the user can no longer refresh,
+ * verify, or re-sync. Hand-written interactions are untouched — they're the
+ * user's own writing, in a different table, and were never Google's to take.
+ * The delete is inlined rather than imported from ./sync to avoid a cycle
+ * (sync depends on getAccessToken above).
  */
 export async function disconnectGoogleAccount(ownerId: string): Promise<void> {
   const [row] = await db
@@ -151,6 +176,7 @@ export async function disconnectGoogleAccount(ownerId: string): Promise<void> {
     .where(eq(googleAccounts.ownerId, ownerId))
     .limit(1);
 
+  await db.delete(emailThreads).where(eq(emailThreads.ownerId, ownerId));
   await db.delete(googleAccounts).where(eq(googleAccounts.ownerId, ownerId));
 
   if (!row) return;

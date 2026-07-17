@@ -12,6 +12,7 @@ import {
   text,
   time,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authUid, authUsers, authenticatedRole } from "drizzle-orm/supabase";
@@ -192,6 +193,16 @@ export const connections = pgTable(
     company: text(),
     avatarTone: tone("avatar_tone").notNull().default("slate"),
     email: text(),
+    /**
+     * Additional addresses for the same person, beyond `email`.
+     *
+     * `email` stays the primary — it's what the UI shows, what CSV import/export
+     * maps, and what outreach copies — so nothing downstream had to change. This
+     * exists because Gmail matching is only as good as the addresses we know
+     * about, and one person routinely has a work and a personal address. Matched
+     * alongside `email`; see `lib/google/sync.ts`.
+     */
+    altEmails: jsonb("alt_emails").$type<string[]>().notNull().default([]),
     phone: text(),
     location: text(),
     /** Full LinkedIn profile URL. */
@@ -483,13 +494,79 @@ export const googleAccounts = pgTable("google_accounts", {
   }).notNull(),
   /** Space-delimited, exactly as Google returned it — what was actually granted. */
   scope: text().notNull(),
+  /**
+   * When Gmail was last swept for this user. Null until the first sync. Drives
+   * the "Last synced …" label in Settings; sync is manual, so this is the only
+   * way the user can tell how fresh the mirrored threads are.
+   */
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   ...timestamps,
 }).enableRLS();
+
+/* ------------------------------------------------------------------ */
+/*  email_threads — Gmail conversations mirrored onto a connection      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One row per Gmail thread per connection: an email *chain* is a single
+ * interaction, so the whole conversation collapses here rather than logging a
+ * row per message.
+ *
+ * Deliberately NOT stored in `connections.interactions`. That array is the
+ * user's own hand-written timeline: it has no stable per-entry id, the panel
+ * edits entries by array index, and `updateInteractions` replaces it wholesale.
+ * Synced mail living there would mean a re-sync either duplicates every thread
+ * or clobbers hand-written notes, and a user edit would silently rewrite Gmail
+ * data as if they'd authored it. Keeping it in its own table makes sync
+ * idempotent (upsert on the natural key below) and keeps the two sources
+ * physically unable to corrupt each other — they're merged for display only,
+ * on the read path (see `lib/data/mappers.ts`).
+ *
+ * Unlike `google_accounts` (which holds tokens and is deliberately unreadable to
+ * the `authenticated` role), this is ordinary user CRM data: normal owner RLS,
+ * read through `withUserRLS` like every other table.
+ */
+export const emailThreads = pgTable(
+  "email_threads",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    ownerId: ownerId(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    /** Gmail's thread id — stable across syncs, and the dedupe key. */
+    threadId: text("thread_id").notNull(),
+    /** Subject of the first message in the thread ("" when Gmail sends none). */
+    subject: text().notNull().default(""),
+    /** Gmail's own ~100-char preview of the latest message. Never a full body. */
+    snippet: text().notNull().default(""),
+    /** Timestamp of the most recent message — what the timeline sorts on. */
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull(),
+    messageCount: integer("message_count").notNull().default(1),
+    /** "sent" | "received" | "both", relative to the linked Google account. */
+    direction: text().notNull().default("both"),
+    ...timestamps,
+  },
+  (t) => [
+    index("email_threads_owner_id_idx").on(t.ownerId),
+    index("email_threads_connection_id_idx").on(t.connectionId),
+    // The natural key sync upserts on: one row per thread per person. Scoped by
+    // owner too, since two users can legitimately mirror the same thread id.
+    uniqueIndex("email_threads_owner_connection_thread_idx").on(
+      t.ownerId,
+      t.connectionId,
+      t.threadId,
+    ),
+    ...ownerRls(t.ownerId),
+  ],
+);
 
 /* ------------------------------------------------------------------ */
 /*  Inferred row types                                                 */
 /* ------------------------------------------------------------------ */
 
+export type EmailThreadRow = typeof emailThreads.$inferSelect;
+export type NewEmailThreadRow = typeof emailThreads.$inferInsert;
 export type GoogleAccountRow = typeof googleAccounts.$inferSelect;
 export type NewGoogleAccountRow = typeof googleAccounts.$inferInsert;
 export type ProfileRow = typeof profiles.$inferSelect;

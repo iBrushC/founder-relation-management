@@ -4,6 +4,7 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 
 import {
   connections,
+  emailThreads,
   eventParticipants,
   events,
   projectOutreach,
@@ -32,14 +33,28 @@ import {
  * (see ./mappers), so pages can drop these in where the demo arrays used to be.
  */
 
-/** All of the user's connections, newest first (a freshly added one stays on top). */
+/**
+ * All of the user's connections, newest first (a freshly added one stays on top).
+ *
+ * Synced Gmail threads are loaded alongside and merged in by the mapper — one
+ * query for all of them, grouped in memory, rather than an N+1 per person.
+ */
 export async function listConnections(): Promise<Connection[]> {
   return withUserRLS(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(connections)
-      .orderBy(desc(connections.createdAt));
-    return rows.map((row, i) => toConnection(row, i + 1));
+    const [rows, threadRows] = await Promise.all([
+      tx.select().from(connections).orderBy(desc(connections.createdAt)),
+      tx.select().from(emailThreads),
+    ]);
+
+    const threadsByConnection = groupBy(
+      threadRows,
+      (t) => t.connectionId,
+      (t) => t,
+    );
+
+    return rows.map((row, i) =>
+      toConnection(row, i + 1, threadsByConnection.get(row.id) ?? []),
+    );
   });
 }
 

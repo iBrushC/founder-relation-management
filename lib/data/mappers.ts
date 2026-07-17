@@ -8,6 +8,7 @@
 import type { IconKey } from "@/lib/icons";
 import type {
   Connection,
+  EmailThread,
   EventItem,
   Outreach,
   OutreachStatus,
@@ -19,6 +20,7 @@ import type {
 import { OUTREACH_STATUSES } from "@/lib/data";
 import type {
   ConnectionRow,
+  EmailThreadRow,
   EventRow,
   ProjectOutreachRow,
   ProjectRow,
@@ -50,7 +52,36 @@ export type UpdatesViewRow = {
   project_ids: string[];
 };
 
-export function toConnection(row: ConnectionRow, rank: number): Connection {
+/** A synced Gmail row → its display shape. Dates derive their own labels. */
+export function toEmailThread(row: EmailThreadRow): EmailThread {
+  const date = toIsoDate(row.lastMessageAt);
+  return {
+    id: row.id,
+    subject: row.subject,
+    snippet: row.snippet,
+    date,
+    when: formatWhen(date),
+    messageCount: row.messageCount,
+    // The column is plain text (it's written by sync, not by a user), so coerce
+    // rather than trust it — an unknown value reads as a neutral "both".
+    direction:
+      row.direction === "sent" || row.direction === "received"
+        ? row.direction
+        : "both",
+  };
+}
+
+/** A timestamptz → the `YYYY-MM-DD` form the timeline sorts and labels on. */
+function toIsoDate(ts: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${ts.getFullYear()}-${p(ts.getMonth() + 1)}-${p(ts.getDate())}`;
+}
+
+export function toConnection(
+  row: ConnectionRow,
+  rank: number,
+  threadRows: EmailThreadRow[] = [],
+): Connection {
   // Recover a date for legacy entries saved before dates were stamped, so they
   // sort and age like new ones. Absolute labels ("Jun 24") are recoverable;
   // relative ones ("Just now") keep their frozen label until re-dated.
@@ -58,7 +89,17 @@ export function toConnection(row: ConnectionRow, rank: number): Connection {
     it.date ? it : { ...it, date: legacyWhenToIso(it.when) ?? undefined },
   );
   const timeline = sortInteractions(dated);
+  const emailThreads = sortInteractions(threadRows.map(toEmailThread));
+
+  // "Last contact" spans both sources — an email you never hand-logged is still
+  // contact. Compare on the ISO dates, then label whichever won.
   const top = timeline[0];
+  const topThread = emailThreads[0];
+  const last = pickLast(
+    top ? { date: top.date, label: formatInteractionWhen(top.date, top.until) ?? top.when } : null,
+    topThread ? { date: topThread.date, label: topThread.when } : null,
+  );
+
   return {
     id: row.id,
     name: row.name,
@@ -66,11 +107,10 @@ export function toConnection(row: ConnectionRow, rank: number): Connection {
     company: row.company ?? "",
     avatarTone: row.avatarTone,
     tags: row.tags ?? [],
-    last: top
-      ? (formatInteractionWhen(top.date, top.until) ?? top.when)
-      : relativeSince(row.updatedAt),
+    last: last ?? relativeSince(row.updatedAt),
     rank,
     email: row.email ?? "",
+    altEmails: row.altEmails ?? [],
     phone: row.phone ?? "",
     location: row.location ?? "",
     linkedin: row.linkedin ?? "",
@@ -78,7 +118,18 @@ export function toConnection(row: ConnectionRow, rank: number): Connection {
     note: row.notes?.[0]?.body ?? "",
     extraFields: row.extraFields ?? [],
     timeline,
+    emailThreads,
   };
+}
+
+/** The more recent of two candidate "last contact" labels; undated entries lose. */
+function pickLast(
+  a: { date?: string; label: string } | null,
+  b: { date?: string; label: string } | null,
+): string | null {
+  if (!a) return b?.label ?? null;
+  if (!b) return a.label;
+  return (b.date ?? "") > (a.date ?? "") ? b.label : a.label;
 }
 
 export function toEvent(row: EventRow, metIds: string[], rank: number): EventItem {

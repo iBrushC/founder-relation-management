@@ -42,6 +42,7 @@ import {
   Linkedin,
   Send,
   Trash,
+  Refresh,
 } from "@mynaui/icons-react";
 
 export const Icons = {
@@ -88,6 +89,7 @@ export const Icons = {
   linkedin: Linkedin,
   send: Send,
   trash: Trash,
+  refresh: Refresh,
 } as const;
 
 export type IconKey = keyof typeof Icons;
