@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SiteFooter } from "@/components/marketing/site-footer";
+import { AnimatedGradientMesh } from "@/components/marketing/animated-gradient-mesh";
 
 export default function AuthLayout({
   children,
@@ -36,19 +37,8 @@ export default function AuthLayout({
 function QuotePanel() {
   return (
     <div className="relative hidden flex-1 overflow-hidden bg-primary lg:block">
-      {/* Layered sage gradient mesh */}
-      <div
-        aria-hidden
-        className="absolute inset-0"
-        style={{
-          background: `
-            radial-gradient(120% 90% at 12% 8%, oklch(0.62 0.09 152) 0%, transparent 55%),
-            radial-gradient(90% 90% at 92% 22%, oklch(0.58 0.08 200) 0%, transparent 50%),
-            radial-gradient(100% 100% at 78% 96%, oklch(0.40 0.07 158) 0%, transparent 55%),
-            radial-gradient(80% 80% at 30% 88%, oklch(0.50 0.10 305) 0%, transparent 45%)
-          `,
-        }}
-      />
+      {/* Drifting sage/teal gradient blobs */}
+      <AnimatedGradientMesh />
       {/* Faint grid texture */}
       <div
         aria-hidden

@@ -65,6 +65,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           type="email"
           autoComplete="email"
           placeholder="you@school.edu"
+          defaultValue={state.email}
           error={state.fieldErrors?.email}
         />
 
@@ -77,6 +78,17 @@ export function AuthForm({ mode }: { mode: Mode }) {
           placeholder="••••••••"
           error={state.fieldErrors?.password}
         />
+
+        {mode === "login" && (
+          <div className="-mt-2 flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        )}
 
         {state.error && (
           <p className="rounded-md tone-red px-3 py-2 text-sm" role="alert">

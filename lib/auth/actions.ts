@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export type AuthState = {
   error?: string;
+  email?: string;
   fieldErrors?: {
     fullName?: string;
     email?: string;
@@ -41,15 +42,24 @@ export async function login(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  const emailValue = formData.get("email");
   const parsed = LoginSchema.safeParse({
-    email: formData.get("email"),
+    email: emailValue,
     password: formData.get("password"),
   });
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) };
+  if (!parsed.success)
+    return {
+      email: typeof emailValue === "string" ? emailValue : undefined,
+      fieldErrors: fieldErrors(parsed.error),
+    };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
-  if (error) return { error: "Invalid email or password." };
+  if (error)
+    return {
+      email: parsed.data.email,
+      error: "Invalid email or password.",
+    };
 
   redirect("/dashboard");
 }

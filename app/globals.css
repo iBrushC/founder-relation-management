@@ -244,9 +244,8 @@
 }
 
 /*
-  Landing surface — a basic fade-in-on-load for hero/demo sections, and the
-  dynamic tile background's per-tile pulse. Both stay subtle and honor
-  reduced-motion below.
+  Landing surface — a basic fade-in-on-load for hero/demo sections. Stays
+  subtle and honors reduced-motion below.
 */
 @keyframes landing-fade-in {
   from {
@@ -263,47 +262,8 @@
   animation: landing-fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/*
-  Subtle, irregular flicker: tiles mostly hold at their peak and dip briefly
-  at a couple of random-feeling points per cycle. The per-tile duration
-  (set inline) keeps every cycle at 2s or slower.
-*/
-@keyframes sfrm-tile-flicker {
-  0% {
-    opacity: var(--tile-peak, 0.12);
-  }
-  9% {
-    opacity: calc(var(--tile-peak, 0.12) * 0.2);
-  }
-  15% {
-    opacity: var(--tile-peak, 0.12);
-  }
-  48% {
-    opacity: var(--tile-peak, 0.12);
-  }
-  53% {
-    opacity: calc(var(--tile-peak, 0.12) * 0.45);
-  }
-  59% {
-    opacity: var(--tile-peak, 0.12);
-  }
-  100% {
-    opacity: var(--tile-peak, 0.12);
-  }
-}
-.sfrm-tile {
-  opacity: var(--tile-peak, 0.12);
-  animation-name: sfrm-tile-flicker;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .landing-fade {
     animation-duration: 0.01ms;
-  }
-  .sfrm-tile {
-    animation: none;
-    opacity: var(--tile-peak, 0.1);
   }
 }
