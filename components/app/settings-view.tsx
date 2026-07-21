@@ -640,7 +640,7 @@ export function SettingsView() {
     <div className="flex flex-col gap-7">
       {/* ---- Plan ---- */}
       <PlanSection
-        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        key={isLoading ? "plan-loading" : `plan-${profile?.id ?? "anon"}`}
         profile={profile}
         onSaved={(p) => mutate(p, { revalidate: false })}
       />
@@ -652,14 +652,14 @@ export function SettingsView() {
         profile arrives. This avoids setting state during the parent's render.
       */}
       <AboutSection
-        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        key={isLoading ? "about-loading" : `about-${profile?.id ?? "anon"}`}
         profile={profile}
         onSaved={(p) => mutate(p, { revalidate: false })}
       />
 
       {/* ---- Notification Settings ---- */}
       <NotificationSection
-        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        key={isLoading ? "notifications-loading" : `notifications-${profile?.id ?? "anon"}`}
         profile={profile}
         onSaved={(p) => mutate(p, { revalidate: false })}
       />
