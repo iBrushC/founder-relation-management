@@ -8,12 +8,21 @@ import { useProfile } from "@/lib/data/hooks";
 import {
   saveProfile,
   saveNotificationSettings,
+  savePlan,
 } from "@/lib/data/profile-actions";
 import {
   notificationSettings,
   profileExtras,
   type ResumeRef,
 } from "@/lib/data/profile-shared";
+import {
+  PLAN_VALUES,
+  planLabel,
+  planTone,
+  resolvePlan,
+  type Plan,
+} from "@/lib/data/billing";
+import { toneBg, toneInk } from "@/lib/tone";
 import { deleteAllData } from "@/lib/data/actions";
 import type { Profile } from "@/lib/data/profiles";
 import { Section } from "@/components/app/layout-bits";
@@ -350,6 +359,89 @@ function NotificationSection({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Section: Plan — the pricing tier dropdown                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The "Plan" card. A single Select that commits on Save via `savePlan`.
+ * Mirrors the persistence pattern used by `NotificationSection` — local
+ * state seeded from the profile, server action merges into the same jsonb
+ * blob, and the resulting profile feeds back into the SWR cache. Payment
+ * isn't wired up yet, so the dropdown is freely switchable for testing.
+ */
+function PlanSection({
+  profile,
+  onSaved,
+}: {
+  profile: Profile | null;
+  onSaved: (profile: Profile) => void;
+}) {
+  const current: Plan = resolvePlan(profile?.settings);
+  const [plan, setPlan] = useState<Plan>(current);
+
+  const [saving, startSaving] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  function handleSave() {
+    setSaveError(null);
+    setSaved(false);
+    startSaving(async () => {
+      const res = await savePlan({ plan });
+      if (res.ok) {
+        onSaved(res.profile);
+        setSaved(true);
+      } else {
+        setSaveError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Section title="Plan" id="plan">
+      <Card>
+        <Row
+          title="Plan"
+          description="Choose your plan. Switch freely for testing — payment isn't wired up yet."
+        >
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+              toneBg[planTone[current]],
+              toneInk[planTone[current]],
+            )}
+            aria-hidden="true"
+          >
+            {planLabel[current]}
+          </span>
+          <Select value={plan} onValueChange={(v) => setPlan(v as Plan)}>
+            <SelectTrigger className="w-36" aria-label="Plan">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PLAN_VALUES.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {planLabel[p]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+        <div className="flex items-center justify-end gap-3 px-4 py-3">
+          {saveError ? (
+            <span className="text-xs text-destructive">{saveError}</span>
+          ) : saved ? (
+            <span className="text-xs text-muted-foreground">Plan saved.</span>
+          ) : null}
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Section: About — the editable profile form                         */
 /* ------------------------------------------------------------------ */
 
@@ -546,6 +638,13 @@ export function SettingsView() {
 
   return (
     <div className="flex flex-col gap-7">
+      {/* ---- Plan ---- */}
+      <PlanSection
+        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        profile={profile}
+        onSaved={(p) => mutate(p, { revalidate: false })}
+      />
+
       {/* ---- About ---- */}
       {/*
         Keyed by the profile id so the form remounts — and re-seeds its state

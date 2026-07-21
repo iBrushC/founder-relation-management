@@ -58,14 +58,17 @@ export function PageBody({
 export function Section({
   title,
   action,
+  id,
   children,
 }: {
   title: string;
   action?: React.ReactNode;
+  /** DOM id for the wrapping section, so deep-links can scroll to it. */
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-2.5">
+    <section id={id} className="flex flex-col gap-2.5">
       <div className="flex items-center gap-3">
         <span className="eyebrow">{title}</span>
         <span className="h-px flex-1 bg-border" />

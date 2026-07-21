@@ -7,6 +7,7 @@ import {
   type ResumeRef,
   type SaveProfileResult,
 } from "@/lib/data/profile-shared";
+import { PLAN_VALUES, type Plan } from "@/lib/data/billing";
 
 /**
  * Client-callable write for the Settings "About" form. Wraps the `updateProfile`
@@ -129,6 +130,45 @@ export async function saveNotificationSettings(
 
   const profile = await updateProfile({ settings });
   if (!profile) return { ok: false, error: "Couldn't save your settings." };
+
+  return { ok: true, profile };
+}
+
+const PlanSchema = z.object({
+  plan: z.enum(PLAN_VALUES as unknown as [Plan, ...Plan[]]),
+});
+
+export type SavePlanResult = SaveProfileResult;
+
+/**
+ * Persist the user's plan tier. Lives in the same `settings.billing` blob as
+ * the rest of the billing-shaped settings so future keys (renewal date,
+ * seats…) can ride along without another column. Payment isn't wired up —
+ * this just toggles which features the UI and server allow.
+ */
+export async function savePlan(input: unknown): Promise<SavePlanResult> {
+  const parsed = PlanSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid plan.",
+    };
+  }
+
+  const current = await getProfile();
+  const prevSettings = current?.settings ?? {};
+  const prevBilling =
+    prevSettings.billing && typeof prevSettings.billing === "object"
+      ? (prevSettings.billing as Record<string, unknown>)
+      : {};
+
+  const settings = {
+    ...prevSettings,
+    billing: { ...prevBilling, plan: parsed.data.plan },
+  };
+
+  const profile = await updateProfile({ settings });
+  if (!profile) return { ok: false, error: "Couldn't save your plan." };
 
   return { ok: true, profile };
 }

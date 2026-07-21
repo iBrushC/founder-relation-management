@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
-import { initials } from "@/lib/tone";
+import { initials, toneBg, toneInk } from "@/lib/tone";
 import { logout } from "@/lib/auth/actions";
 import { useProfile } from "@/lib/data/hooks";
+import { planLabel, planTone, resolvePlan } from "@/lib/data/billing";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,8 @@ export function Sidebar() {
   // Neutral placeholders until the profile loads (or Supabase isn't configured).
   const name = profile?.fullName || "Account";
   const secondary = profile?.email || "";
+  const plan = resolvePlan(profile?.settings);
+  const tone = planTone[plan];
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -87,9 +90,21 @@ export function Sidebar() {
                 <div className="truncate text-sm font-medium text-sidebar-foreground">
                   {name}
                 </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {secondary}
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-xs text-muted-foreground">
+                    {secondary}
+                  </span>
                 </div>
+                <span
+                  className={cn(
+                    "mt-1 inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium uppercase tracking-wide",
+                    toneBg[tone],
+                    toneInk[tone],
+                  )}
+                  aria-label={`Plan: ${planLabel[plan]}`}
+                >
+                  {planLabel[plan]}
+                </span>
               </div>
               <Icons.dots className="ml-auto size-4 shrink-0 text-muted-foreground" />
             </button>

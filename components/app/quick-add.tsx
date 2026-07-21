@@ -1,11 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Icons } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useToast } from "@/components/ui/toast";
 import { runQuickAdd } from "@/lib/data/quick-add-actions";
+import { useProfile } from "@/lib/data/hooks";
+import {
+  planAllowsQuickAdd,
+  planLabel,
+  resolvePlan,
+} from "@/lib/data/billing";
 
 /**
  * AI Quick Add. A search-bar-style popover: type one line of plain language
@@ -18,6 +30,10 @@ import { runQuickAdd } from "@/lib/data/quick-add-actions";
  * another line) while the agent thinks. Every request reports back as a toast —
  * what landed on success, and on an ambiguous request the agent's question with
  * an Edit action that reopens this box with your original text intact.
+ *
+ * Gating: Free users see a disabled button with a lock icon; clicking opens an
+ * upgrade popover. The server action is gated separately (lib/data/quick-add-
+ * actions) so bypassing the UI still hits the wall.
  */
 
 function Spinner() {
@@ -28,7 +44,12 @@ function Spinner() {
 
 export function QuickAdd() {
   const { toast } = useToast();
+  const { profile } = useProfile();
+  const plan = resolvePlan(profile?.settings);
+  const allowed = planAllowsQuickAdd(plan);
+
   const [open, setOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [text, setText] = useState("");
   // Requests currently in flight. Several can overlap — each is independent.
   const [pending, setPending] = useState(0);
@@ -114,6 +135,56 @@ export function QuickAdd() {
     setText("");
     setOpen(false);
     void run(clean);
+  }
+
+  if (!allowed) {
+    return (
+      <Popover open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            disabled
+            aria-disabled="true"
+            title="Upgrade to use Quick Add"
+            className="opacity-60"
+          >
+            <Icons.lock className="size-4" />
+            Quick Add
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72">
+          <div className="flex flex-col gap-2 p-1">
+            <div className="flex items-center gap-2">
+              <Icons.sparkles className="size-4 text-primary" />
+              <div className="text-sm font-semibold">
+                Quick Add is a paid feature
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              You&apos;re on the {planLabel.free} plan. Upgrade to Quick or Grow
+              to log contacts, interactions, and outreach in plain language.
+            </p>
+            <div className="mt-1 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setUpgradeOpen(false)}
+              >
+                Not now
+              </Button>
+              <Button asChild size="sm">
+                <Link
+                  href="/settings#plan"
+                  onClick={() => setUpgradeOpen(false)}
+                >
+                  Upgrade in Settings
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
   }
 
   return (

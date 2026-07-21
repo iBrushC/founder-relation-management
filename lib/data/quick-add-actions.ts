@@ -8,6 +8,7 @@ import { withUserRLS } from "@/lib/db/rls";
 import { todayInZone } from "@/lib/data/format";
 import { getProfile } from "@/lib/data/profiles";
 import { profileExtras } from "@/lib/data/profile-shared";
+import { planAllowsQuickAdd, resolvePlan } from "@/lib/data/billing";
 import { type ActionResult, fail, ok } from "@/lib/data/result";
 import { runQuickAdd as runAgent, type QuickAddResult } from "@/lib/ai/quick-add";
 import { OpenRouterError } from "@/lib/ai/openrouter";
@@ -45,6 +46,15 @@ export async function runQuickAdd(
   const clean = (text ?? "").trim();
   if (!clean) return fail("Type something to add.");
   if (clean.length > MAX_TEXT) return fail("That's a bit long — try a shorter note.");
+
+  // Plan gate — runs before any DB read (including the dedupe lookups) so a
+  // free user can't probe the CRM through Quick Add's read tools either.
+  const plan = resolvePlan((await getProfile())?.settings);
+  if (!planAllowsQuickAdd(plan)) {
+    return fail(
+      "Quick Add is available on the Quick and Grow plans. Upgrade in Settings to keep going.",
+    );
+  }
 
   try {
     const today = todayInZone(await userTimeZone());
