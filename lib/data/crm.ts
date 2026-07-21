@@ -15,6 +15,7 @@ import {
 } from "@/drizzle/schema";
 import type { Connection, EventItem, Project, Update } from "@/lib/data";
 import { withUserRLS } from "@/lib/db/rls";
+import { listCheckInUpdates } from "./check-in-updates";
 import {
   toConnection,
   toEvent,
@@ -194,6 +195,21 @@ export async function listUpdates(): Promise<Update[]> {
     `)) as unknown as UpdatesViewRow[];
     return rows.map(toUpdate);
   });
+}
+
+/**
+ * The Updates feed merged with the recurring "check in with X" reminders.
+ * The SQL view doesn't compute cadence (it only reads static columns), so
+ * check-ins are computed in TS after the view query — they're recomputed in
+ * the user's timezone and respect the persisted `notifications.checkins`
+ * setting (interval + on/off). Overdue reminders surface in Today, on-cycle
+ * reminders on their actual due date.
+ */
+export async function listUpdatesWithCheckIns(): Promise<Update[]> {
+  const [view, checkIns] = await Promise.all([listUpdates(), listCheckInUpdates()]);
+  // De-dupe by id (defensive — the SQL view has its own id namespace).
+  const seen = new Set(view.map((u) => u.id));
+  return [...view, ...checkIns.filter((u) => !seen.has(u.id))];
 }
 
 /** Today's calendar date as `YYYY-MM-DD`, matching stored `date` columns. */

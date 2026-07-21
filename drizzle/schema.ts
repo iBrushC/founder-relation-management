@@ -212,6 +212,15 @@ export const connections = pgTable(
     tags: jsonb().$type<Tag[]>().notNull().default([]),
     /** The interaction timeline (most-recent first). */
     interactions: jsonb().$type<Interaction[]>().notNull().default([]),
+    /**
+     * The last day a check-in reminder for this connection was surfaced to the
+     * user. Together with `interactions[0].date`, this drives the recurring
+     * "every N days" cadence — a fresh interaction resets the cycle (the
+     * column is cleared on log), the next reminder is anchored on the newer
+     * of the two dates, and acknowledging the reminder advances the cycle by
+     * N days. See `lib/reminders/check-ins.ts`.
+     */
+    lastCheckInNotifiedAt: date("last_check_in_notified_at"),
     notes: jsonb().$type<ConnectionNote[]>().notNull().default([]),
     /** Free-form key/value details beyond the fixed contact fields. */
     extraFields: jsonb("extra_fields").$type<ExtraField[]>().notNull().default([]),

@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { Icons } from "@/lib/icons";
-import { listConnections, listProjects, listUpdates } from "@/lib/data/crm";
+import {
+  listConnections,
+  listProjects,
+  listUpdatesWithCheckIns,
+} from "@/lib/data/crm";
 import { PageHeader, PageBody, Section } from "@/components/app/layout-bits";
 import { ProjectRow } from "@/components/app/rows";
 import { UpdatesView } from "@/components/app/updates-view";
@@ -9,10 +13,11 @@ import { AddConnectionDialog } from "@/components/app/add-dialogs";
 import { ConnectionsProvider } from "@/components/app/list-contexts";
 import { projectLinksByConnection } from "@/lib/data/project-links";
 import { Button } from "@/components/ui/button";
+import { acknowledgeCheckIn } from "@/lib/data/actions";
 
 export default async function DashboardPage() {
   const [updates, connections, projects] = await Promise.all([
-    listUpdates(),
+    listUpdatesWithCheckIns(),
     listConnections(),
     listProjects(),
   ]);
@@ -46,6 +51,7 @@ export default async function DashboardPage() {
             updates={updates}
             connectionsById={connectionsById}
             projectsById={projectsById}
+            acknowledgeCheckIn={acknowledgeCheckIn}
           />
         </Section>
 

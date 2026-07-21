@@ -685,7 +685,14 @@ export async function logInteraction(
       if (!row) return;
       await tx
         .update(connections)
-        .set({ interactions: [entry, ...(row.interactions ?? [])] })
+        // Resetting `lastCheckInNotifiedAt` here is what makes a fresh
+        // interaction restart the check-in cycle — the cycle anchor moves to
+        // `entry.date` and the next reminder won't fire until
+        // `entry.date + interval`.
+        .set({
+          interactions: [entry, ...(row.interactions ?? [])],
+          lastCheckInNotifiedAt: null,
+        })
         .where(eq(connections.id, connectionId));
     });
     revalidatePath("/connections");
@@ -705,10 +712,35 @@ export async function updateInteractions(
     await withUserRLS((tx) =>
       tx
         .update(connections)
-        .set({ interactions })
+        // Timeline edits can change which date is "most recent", so clear the
+        // cycle anchor so the next read recomputes it from the new top entry.
+        .set({ interactions, lastCheckInNotifiedAt: null })
         .where(eq(connections.id, connectionId)),
     );
     revalidatePath("/connections");
+    revalidatePath("/");
+  });
+}
+
+/**
+ * Mark a recurring check-in reminder as acknowledged. Sets
+ * `lastCheckInNotifiedAt` to today, which anchors the *next* due date at
+ * `today + interval` (see `cycleAnchorFor`). If the user instead logs a real
+ * interaction, `logInteraction` clears `lastCheckInNotifiedAt` so the cycle
+ * restarts from that interaction — either way the row drops out of the
+ * Updates feed today.
+ */
+export async function acknowledgeCheckIn(
+  connectionId: string,
+): Promise<ActionResult> {
+  if (!zUuid.safeParse(connectionId).success) return fail(BAD_ID);
+  return run(async () => {
+    await withUserRLS((tx) => {
+      return tx
+        .update(connections)
+        .set({ lastCheckInNotifiedAt: todayIso() })
+        .where(eq(connections.id, connectionId));
+    });
     revalidatePath("/");
   });
 }

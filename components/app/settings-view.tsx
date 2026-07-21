@@ -5,8 +5,15 @@ import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { logout, requestPasswordReset } from "@/lib/auth/actions";
 import { useProfile } from "@/lib/data/hooks";
-import { saveProfile } from "@/lib/data/profile-actions";
-import { profileExtras, type ResumeRef } from "@/lib/data/profile-shared";
+import {
+  saveProfile,
+  saveNotificationSettings,
+} from "@/lib/data/profile-actions";
+import {
+  notificationSettings,
+  profileExtras,
+  type ResumeRef,
+} from "@/lib/data/profile-shared";
 import { deleteAllData } from "@/lib/data/actions";
 import type { Profile } from "@/lib/data/profiles";
 import { Section } from "@/components/app/layout-bits";
@@ -126,7 +133,7 @@ function NotificationRow({
 }
 
 /** A number field + unit select + trailing phrase ("6 weeks after last contact"). */
-function IntervalControl({
+function IntervalControl<U extends string>({
   value,
   unit,
   onValue,
@@ -134,9 +141,9 @@ function IntervalControl({
   trailing,
 }: {
   value: number;
-  unit: string;
+  unit: U;
   onValue: (n: number) => void;
-  onUnit: (u: string) => void;
+  onUnit: (u: U) => void;
   trailing: string;
 }) {
   return (
@@ -165,6 +172,180 @@ function IntervalControl({
         {trailing}
       </span>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section: Notification Settings — persisted via saveNotificationSettings */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The "Notification Settings" card. Form state is seeded from the persisted
+ * `profile.settings.notifications` blob, with the same defaults the
+ * pre-persistence UI used (6 weeks). Save commits via the server action and
+ * feeds the new profile back into the SWR cache.
+ *
+ * Only the Check-ins toggle currently drives behavior (the other rows are
+ * visual placeholders for the upcoming deadline/event/outreach cadences),
+ * but their state is also persisted so the UI is honest with the user.
+ */
+function NotificationSection({
+  profile,
+  onSaved,
+}: {
+  profile: Profile | null;
+  onSaved: (profile: Profile) => void;
+}) {
+  const ns = notificationSettings(profile);
+
+  const [checkins, setCheckins] = useState(ns.checkins);
+  const [deadlines, setDeadlines] = useState({
+    enabled: true,
+    value: 3,
+    unit: "days" as const,
+  });
+  const [events, setEvents] = useState({
+    enabled: true,
+    timing: "day-of" as const,
+  });
+  const [followups, setFollowups] = useState({
+    enabled: true,
+    count: 3,
+    interval: 7,
+  });
+
+  const [saving, startSaving] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  function handleSave() {
+    setSaveError(null);
+    setSaved(false);
+    startSaving(async () => {
+      const res = await saveNotificationSettings({ checkins });
+      if (res.ok) {
+        onSaved(res.profile);
+        setSaved(true);
+      } else {
+        setSaveError(res.error);
+      }
+    });
+  }
+
+  return (
+    <Section title="Notification Settings">
+      <Card>
+        <NotificationRow
+          title="Check-ins"
+          description="Nudge you to reconnect when a relationship goes quiet."
+          enabled={checkins.enabled}
+          onToggle={(on) => setCheckins((s) => ({ ...s, enabled: on }))}
+        >
+          <IntervalControl
+            value={checkins.value}
+            unit={checkins.unit}
+            onValue={(value) => setCheckins((s) => ({ ...s, value }))}
+            onUnit={(unit) => setCheckins((s) => ({ ...s, unit }))}
+            trailing="after last contact"
+          />
+        </NotificationRow>
+
+        <NotificationRow
+          title="Upcoming deadlines"
+          description="Remind you before a task or project deadline lands."
+          enabled={deadlines.enabled}
+          onToggle={(on) => setDeadlines((s) => ({ ...s, enabled: on }))}
+        >
+          <IntervalControl
+            value={deadlines.value}
+            unit={deadlines.unit}
+            onValue={(value) => setDeadlines((s) => ({ ...s, value }))}
+            onUnit={(unit) => setDeadlines((s) => ({ ...s, unit }))}
+            trailing="before due"
+          />
+        </NotificationRow>
+
+        <NotificationRow
+          title="Social events"
+          description="Birthdays, mixers, and meetups on your calendar."
+          enabled={events.enabled}
+          onToggle={(on) => setEvents((s) => ({ ...s, enabled: on }))}
+        >
+          <Select
+            value={events.timing}
+            onValueChange={(timing) =>
+              setEvents((s) => ({ ...s, timing: timing as typeof events.timing }))
+            }
+          >
+            <SelectTrigger size="sm" aria-label="When to notify">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EVENT_TIMING.map((t) => (
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </NotificationRow>
+
+        <NotificationRow
+          title="Outreach follow-ups"
+          description="Keep nudging you until a founder replies to your outreach."
+          enabled={followups.enabled}
+          onToggle={(on) => setFollowups((s) => ({ ...s, enabled: on }))}
+        >
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            Send up to
+          </span>
+          <Input
+            type="number"
+            min={1}
+            value={followups.count}
+            onChange={(e) =>
+              setFollowups((s) => ({
+                ...s,
+                count: Math.max(1, Number(e.target.value) || 1),
+              }))
+            }
+            className="h-7 w-14 px-2 text-center tabular-nums"
+            aria-label="Number of follow-up reminders"
+          />
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            follow-up reminders, one every
+          </span>
+          <Input
+            type="number"
+            min={1}
+            value={followups.interval}
+            onChange={(e) =>
+              setFollowups((s) => ({
+                ...s,
+                interval: Math.max(1, Number(e.target.value) || 1),
+              }))
+            }
+            className="h-7 w-14 px-2 text-center tabular-nums"
+            aria-label="Days between reminders"
+          />
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            days
+          </span>
+        </NotificationRow>
+
+        <div className="flex items-center justify-end gap-3 px-4 py-3">
+          {saveError ? (
+            <span className="text-xs text-destructive">{saveError}</span>
+          ) : saved ? (
+            <span className="text-xs text-muted-foreground">
+              Notification settings saved.
+            </span>
+          ) : null}
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </Card>
+    </Section>
   );
 }
 
@@ -356,12 +537,6 @@ export function SettingsView() {
 
   const [loggingOut, startLoggingOut] = useTransition();
 
-  // Notifications
-  const [checkins, setCheckins] = useState({ on: true, value: 6, unit: "weeks" });
-  const [deadlines, setDeadlines] = useState({ on: true, value: 3, unit: "days" });
-  const [events, setEvents] = useState({ on: true, timing: "day-of" });
-  const [followups, setFollowups] = useState({ on: true, count: 3, interval: 7 });
-
   // Integrations — Google owns its own state; LinkedIn is still a stub.
   const [linkedin, setLinkedin] = useState(false);
 
@@ -384,105 +559,11 @@ export function SettingsView() {
       />
 
       {/* ---- Notification Settings ---- */}
-      <Section title="Notification Settings">
-        <Card>
-          <NotificationRow
-            title="Check-ins"
-            description="Nudge you to reconnect when a relationship goes quiet."
-            enabled={checkins.on}
-            onToggle={(on) => setCheckins((s) => ({ ...s, on }))}
-          >
-            <IntervalControl
-              value={checkins.value}
-              unit={checkins.unit}
-              onValue={(value) => setCheckins((s) => ({ ...s, value }))}
-              onUnit={(unit) => setCheckins((s) => ({ ...s, unit }))}
-              trailing="after last contact"
-            />
-          </NotificationRow>
-
-          <NotificationRow
-            title="Upcoming deadlines"
-            description="Remind you before a task or project deadline lands."
-            enabled={deadlines.on}
-            onToggle={(on) => setDeadlines((s) => ({ ...s, on }))}
-          >
-            <IntervalControl
-              value={deadlines.value}
-              unit={deadlines.unit}
-              onValue={(value) => setDeadlines((s) => ({ ...s, value }))}
-              onUnit={(unit) => setDeadlines((s) => ({ ...s, unit }))}
-              trailing="before due"
-            />
-          </NotificationRow>
-
-          <NotificationRow
-            title="Social events"
-            description="Birthdays, mixers, and meetups on your calendar."
-            enabled={events.on}
-            onToggle={(on) => setEvents((s) => ({ ...s, on }))}
-          >
-            <Select
-              value={events.timing}
-              onValueChange={(timing) => setEvents((s) => ({ ...s, timing }))}
-            >
-              <SelectTrigger size="sm" aria-label="When to notify">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EVENT_TIMING.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </NotificationRow>
-
-          <NotificationRow
-            title="Outreach follow-ups"
-            description="Keep nudging you until a founder replies to your outreach."
-            enabled={followups.on}
-            onToggle={(on) => setFollowups((s) => ({ ...s, on }))}
-          >
-            <span className="text-xs whitespace-nowrap text-muted-foreground">
-              Send up to
-            </span>
-            <Input
-              type="number"
-              min={1}
-              value={followups.count}
-              onChange={(e) =>
-                setFollowups((s) => ({
-                  ...s,
-                  count: Math.max(1, Number(e.target.value) || 1),
-                }))
-              }
-              className="h-7 w-14 px-2 text-center tabular-nums"
-              aria-label="Number of follow-up reminders"
-            />
-            <span className="text-xs whitespace-nowrap text-muted-foreground">
-              follow-up reminders, one every
-            </span>
-            <Input
-              type="number"
-              min={1}
-              value={followups.interval}
-              onChange={(e) =>
-                setFollowups((s) => ({
-                  ...s,
-                  interval: Math.max(1, Number(e.target.value) || 1),
-                }))
-              }
-              className="h-7 w-14 px-2 text-center tabular-nums"
-              aria-label="Days between reminders"
-            />
-            <span className="text-xs whitespace-nowrap text-muted-foreground">
-              days
-            </span>
-          </NotificationRow>
-        </Card>
-      </Section>
+      <NotificationSection
+        key={isLoading ? "loading" : (profile?.id ?? "anon")}
+        profile={profile}
+        onSaved={(p) => mutate(p, { revalidate: false })}
+      />
 
       {/* ---- Integrations ---- */}
       <Section title="Integrations">

@@ -87,3 +87,48 @@ export async function saveResume(
 
   return { ok: true, profile };
 }
+
+const CheckInSchema = z.object({
+  enabled: z.boolean(),
+  value: z.number().int().min(1).max(365),
+  unit: z.enum(["days", "weeks", "months"]),
+});
+
+const NotificationSettingsSchema = z.object({
+  checkins: CheckInSchema,
+});
+
+export type SaveNotificationSettingsResult =
+  | { ok: true; profile: import("@/lib/data/profiles").Profile }
+  | { ok: false; error: string };
+
+/**
+ * Persist the notification toggles (currently just the Check-ins cadence).
+ * Lives alongside `saveProfile` so the Settings page can save the About card
+ * and the Notification card with two distinct actions without clobbering each
+ * other's jsonb keys — both are merged into the same `settings` blob.
+ */
+export async function saveNotificationSettings(
+  input: unknown,
+): Promise<SaveNotificationSettingsResult> {
+  const parsed = NotificationSettingsSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid notification settings.",
+    };
+  }
+
+  const current = await getProfile();
+  const prevSettings = current?.settings ?? {};
+
+  const settings = {
+    ...prevSettings,
+    notifications: parsed.data,
+  };
+
+  const profile = await updateProfile({ settings });
+  if (!profile) return { ok: false, error: "Couldn't save your settings." };
+
+  return { ok: true, profile };
+}

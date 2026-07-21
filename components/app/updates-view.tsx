@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { Icons } from "@/lib/icons";
 import { toneBg } from "@/lib/tone";
@@ -23,6 +23,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 // The three day-windows we surface, in the order they render.
 const GROUPS: { key: Exclude<DayBucket, "other">; label: string }[] = [
@@ -31,14 +32,24 @@ const GROUPS: { key: Exclude<DayBucket, "other">; label: string }[] = [
   { key: "yesterday", label: "Yesterday" },
 ];
 
+/**
+ * Server action signature the panel calls to clear a recurring check-in
+ * reminder (so it doesn't surface every day). Injected by the dashboard.
+ * Passed as a prop rather than imported directly so the panel stays free of
+ * server-action wiring details — it only sees `(id) => Promise<unknown>`.
+ */
+type AcknowledgeCheckIn = (connectionId: string) => Promise<unknown>;
+
 export function UpdatesView({
   updates,
   connectionsById,
   projectsById,
+  acknowledgeCheckIn,
 }: {
   updates: Update[];
   connectionsById: Record<string, Connection>;
   projectsById: Record<string, Project>;
+  acknowledgeCheckIn: AcknowledgeCheckIn;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = updates.find((u) => u.id === selectedId) ?? null;
@@ -125,6 +136,7 @@ export function UpdatesView({
         update={selected}
         connectionsById={connectionsById}
         projectsById={projectsById}
+        acknowledgeCheckIn={acknowledgeCheckIn}
         open={selected !== null}
         onOpenChange={(o) => !o && setSelectedId(null)}
       />
@@ -151,12 +163,14 @@ function UpdatePanel({
   update,
   connectionsById,
   projectsById,
+  acknowledgeCheckIn,
   open,
   onOpenChange,
 }: {
   update: Update | null;
   connectionsById: Record<string, Connection>;
   projectsById: Record<string, Project>;
+  acknowledgeCheckIn: AcknowledgeCheckIn;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -167,6 +181,19 @@ function UpdatePanel({
   const relatedProjects = update
     ? update.projectIds.map((id) => projectsById[id]).filter(Boolean)
     : [];
+
+  // Check-in rows carry `check_in:<connectionId>` as their id; everything else
+  // is non-recurring and gets no acknowledge button.
+  const isCheckIn = !!update && update.id.startsWith("check_in:");
+  const checkInConnectionId = isCheckIn ? update!.id.slice("check_in:".length) : null;
+  const [acking, startAcking] = useTransition();
+  function handleAcknowledge() {
+    if (!checkInConnectionId) return;
+    startAcking(async () => {
+      await acknowledgeCheckIn(checkInConnectionId);
+      onOpenChange(false);
+    });
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -258,6 +285,20 @@ function UpdatePanel({
                     })}
                   </div>
                 </Block>
+              ) : null}
+
+              {isCheckIn ? (
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAcknowledge}
+                    disabled={acking}
+                  >
+                    <Icons.check className="size-3.5" />
+                    {acking ? "Saving…" : "Mark done"}
+                  </Button>
+                </div>
               ) : null}
             </div>
           </>

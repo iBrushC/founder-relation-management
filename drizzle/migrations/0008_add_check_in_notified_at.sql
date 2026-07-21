@@ -1,0 +1,1 @@
+ALTER TABLE "connections" ADD COLUMN "last_check_in_notified_at" date;
