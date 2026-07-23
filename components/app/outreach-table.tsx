@@ -184,8 +184,8 @@ export function OutreachTable({
   };
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2.5 min-w-max">
         <span className="text-xs tabular-nums text-muted-foreground">
           {items.length} {items.length === 1 ? "recipient" : "recipients"}
         </span>

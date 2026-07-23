@@ -81,7 +81,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-6 px-4 py-3">
       <div className="min-w-0">
         <div className="text-sm font-medium">{title}</div>
         {description ? (
@@ -119,7 +119,7 @@ function NotificationRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-4 px-4 py-3">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-4 py-3">
       <Checkbox
         checked={enabled}
         onCheckedChange={(v) => onToggle(v === true)}
@@ -131,7 +131,7 @@ function NotificationRow({
       </div>
       <div
         className={cn(
-          "flex shrink-0 items-center gap-1.5",
+          "flex shrink-0 flex-wrap items-center gap-1.5",
           !enabled && "pointer-events-none opacity-40",
         )}
       >
@@ -156,7 +156,7 @@ function IntervalControl<U extends string>({
   trailing: string;
 }) {
   return (
-    <>
+    <div className="flex flex-wrap items-center gap-1.5">
       <Input
         type="number"
         min={1}
@@ -180,7 +180,7 @@ function IntervalControl<U extends string>({
       <span className="text-xs whitespace-nowrap text-muted-foreground">
         {trailing}
       </span>
-    </>
+    </div>
   );
 }
 
@@ -321,7 +321,10 @@ function NotificationSection({
             aria-label="Number of follow-up reminders"
           />
           <span className="text-xs whitespace-nowrap text-muted-foreground">
-            follow-up reminders, one every
+            follow-up reminders,
+          </span>
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            one every
           </span>
           <Input
             type="number"

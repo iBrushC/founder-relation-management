@@ -189,9 +189,9 @@ export function QuickAdd() {
 
   return (
     <div ref={rootRef} className="relative">
-      <Button onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+      <Button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="gap-1.5 lg:gap-2">
         {pending > 0 ? <Spinner /> : <Icons.sparkles className="size-4" />}
-        Quick Add
+        <span className="hidden sm:inline">Quick Add</span>
         {pending > 1 ? (
           <span className="tabular-nums opacity-70">{pending}</span>
         ) : null}
@@ -201,7 +201,7 @@ export function QuickAdd() {
       </Button>
 
       {open ? (
-        <div className="absolute top-full right-0 z-30 mt-2 w-96 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+        <div className="absolute top-full right-0 z-30 mt-2 w-[calc(100vw-2rem)] max-w-96 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
           <form
             onSubmit={(e) => {
               e.preventDefault();

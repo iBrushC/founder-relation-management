@@ -39,7 +39,7 @@ export function Sidebar() {
   const tone = planTone[plan];
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+    <aside className="hidden lg:flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
       <div className="flex items-center gap-2.5 px-4 py-5">
         {/* eslint-disable-next-line @next/next/no-img-element -- static brand mark from /public */}
         <img

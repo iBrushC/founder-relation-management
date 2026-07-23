@@ -16,7 +16,7 @@ export function PageHeader({
 }) {
   return (
     <header>
-      <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 pt-6 pb-1">
+      <div className="mx-auto flex max-w-5xl items-center gap-4 px-4 lg:px-6 pt-4 lg:pt-6 pb-1">
         <div className="min-w-0">
           {back ? (
             <Link
@@ -50,7 +50,7 @@ export function PageBody({
   className?: string;
 }) {
   return (
-    <div className={cn("mx-auto max-w-5xl px-6 pt-3 pb-8", className)}>{children}</div>
+    <div className={cn("mx-auto max-w-5xl px-4 lg:px-6 pt-3 pb-8", className)}>{children}</div>
   );
 }
 

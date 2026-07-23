@@ -221,7 +221,7 @@ function FullTable({
   onLog: (id: string) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

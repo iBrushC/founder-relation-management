@@ -231,7 +231,7 @@ export function ProjectDetail({
   return (
     <>
       <header>
-        <div className="mx-auto flex max-w-5xl items-start gap-4 px-6 pt-6 pb-1">
+        <div className="mx-auto flex max-w-5xl flex-col lg:flex-row lg:items-start gap-4 px-4 lg:px-6 pt-4 lg:pt-6 pb-1">
           <div className="min-w-0 flex-1">
             <Link
               href="/projects"
@@ -280,7 +280,7 @@ export function ProjectDetail({
             )}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
             {editing ? (
               <>
                 <Button variant="ghost" onClick={() => setEditing(false)}>
@@ -328,7 +328,7 @@ export function ProjectDetail({
                 className="min-h-20"
               />
             </EditRow>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <EditRow label="Status" htmlFor="p-status">
                 <Input
                   id="p-status"
@@ -533,7 +533,7 @@ function StageForm({
           className="h-8"
         />
       </EditRow>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <EditRow label="Start" htmlFor="stage-start">
           <Input
             id="stage-start"
@@ -617,7 +617,7 @@ function AddPersonDialog({
             </Label>
             <Input id="np-name" autoFocus value={form.name} onChange={set("name")} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="np-role" className="text-xs text-muted-foreground">
                 Role

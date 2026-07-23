@@ -67,7 +67,7 @@ export function GanttTimeline({ phases }: { phases: Phase[] }) {
   const todayLeft = todayInRange ? (todayDay - min) * dayWidth : null;
 
   return (
-    <div className="flex overflow-hidden rounded-md border border-border bg-card">
+    <div className="flex overflow-x-auto rounded-md border border-border bg-card">
       {/* Fixed stage-name gutter */}
       <div className="w-36 shrink-0 border-r border-border">
         <div className="h-8 border-b border-border" />
