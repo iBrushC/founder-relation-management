@@ -9,7 +9,7 @@ export function TopBar() {
     <header className="z-20 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] lg:grid-cols-[1fr_minmax(0,32rem)_1fr] items-center justify-center gap-4 border-b border-border bg-background/85 px-4 lg:px-6 backdrop-blur-sm">
       <div />
 
-      <GlobalSearch className="hidden lg:block" />
+      <GlobalSearch />
 
       <div className="flex items-center justify-end gap-1 lg:gap-2">
         <QuickAdd />
